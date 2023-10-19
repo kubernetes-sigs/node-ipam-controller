@@ -1,0 +1,43 @@
+linters:
+  disable-all: true
+  enable:
+    - asciicheck
+    - bodyclose
+    - durationcheck
+    - errcheck
+    - errorlint
+    - exportloopref
+    - gocritic
+    - gofmt
+    - gosimple
+    - govet
+    - ineffassign
+    - megacheck
+    - misspell
+    - nakedret
+    - nilerr
+    - nosprintfhostport
+    - staticcheck
+    - typecheck
+    - unconvert
+    - unparam
+    - unused
+    - whitespace
+linters-settings:
+  golint:
+    min-confidence: 0
+issues:
+  max-same-issues: 0
+  exclude-rules:
+    - path: _test.*\.go
+      text: dot-imports
+      linters:
+        - revive
+    - path: _test.*\.go
+      linters:
+        - bodyclose
+        - typecheck
+        - errcheck
+        - unparam
+run:
+  timeout: 2m
