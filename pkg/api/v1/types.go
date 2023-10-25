@@ -5,8 +5,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// +kubebuilder:object:root=true
-
 // ClusterCIDR represents a single configuration for per-Node Pod CIDR
 // allocations when the MultiCIDRRangeAllocator is enabled (see the config for
 // kube-controller-manager).  A cluster may have any number of ClusterCIDR
@@ -17,6 +15,8 @@ import (
 // to break ties using internal heuristics, but any ClusterCIDR whose node
 // selector matches the Node may be used.
 // todo(mneverov): status?
+// +kubebuilder:object:root=true
+// +kubebuilder:resource:scope=Cluster
 type ClusterCIDR struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -26,13 +26,12 @@ type ClusterCIDR struct {
 
 // ClusterCIDRSpec defines the desired state of ClusterCIDR.
 type ClusterCIDRSpec struct {
-	// +optional
 	// nodeSelector defines which nodes the config is applicable to.
 	// An empty or nil nodeSelector selects all nodes.
 	// This field is optional and immutable.
+	// +optional
 	NodeSelector *api.NodeSelector `json:"nodeSelector,omitempty"`
 
-	// +kubebuilder:validation:Required
 	// perNodeHostBits defines the number of host bits to be configured per node.
 	// A subnet mask determines how much of the address is used for network bits
 	// and host bits. For example an IPv4 address of 192.168.0.0/24, splits the
@@ -40,24 +39,24 @@ type ClusterCIDRSpec struct {
 	// To allocate 256 IPs, set this field to 8 (a /24 mask for IPv4 or a /120 for IPv6).
 	// Minimum value is 4 (16 IPs).
 	// This field is required and immutable.
+	// +kubebuilder:validation:Required
 	PerNodeHostBits int32 `json:"perNodeHostBits"`
 
-	// +optional
 	// ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
+	// +optional
 	IPv4 string `json:"ipv4,omitempty"`
 
-	// +optional
 	// ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
+	// +optional
 	IPv6 string `json:"ipv6,omitempty"`
 }
 
-// +kubebuilder:object:root=true
-
 // ClusterCIDRList contains a list of ClusterCIDRs.
+// +kubebuilder:object:root=true
 type ClusterCIDRList struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional

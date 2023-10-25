@@ -12,7 +12,7 @@ spec:
     listKind: ClusterCIDRList
     plural: clustercidrs
     singular: clustercidr
-  scope: Namespaced
+  scope: Cluster
   versions:
   - name: v1
     schema:
