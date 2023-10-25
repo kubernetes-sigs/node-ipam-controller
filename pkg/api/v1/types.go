@@ -26,11 +26,13 @@ type ClusterCIDR struct {
 
 // ClusterCIDRSpec defines the desired state of ClusterCIDR.
 type ClusterCIDRSpec struct {
+	// +optional
 	// nodeSelector defines which nodes the config is applicable to.
 	// An empty or nil nodeSelector selects all nodes.
 	// This field is optional and immutable.
 	NodeSelector *api.NodeSelector `json:"nodeSelector,omitempty"`
 
+	// +kubebuilder:validation:Required
 	// perNodeHostBits defines the number of host bits to be configured per node.
 	// A subnet mask determines how much of the address is used for network bits
 	// and host bits. For example an IPv4 address of 192.168.0.0/24, splits the
@@ -40,11 +42,13 @@ type ClusterCIDRSpec struct {
 	// This field is required and immutable.
 	PerNodeHostBits int32 `json:"perNodeHostBits"`
 
+	// +optional
 	// ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
 	IPv4 string `json:"ipv4,omitempty"`
 
+	// +optional
 	// ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
@@ -56,6 +60,7 @@ type ClusterCIDRSpec struct {
 // ClusterCIDRList contains a list of ClusterCIDRs.
 type ClusterCIDRList struct {
 	metav1.TypeMeta `json:",inline"`
+	// +optional
 	metav1.ListMeta `json:"metadata,omitempty"`
 
 	// items is the list of ClusterCIDRs.
