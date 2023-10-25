@@ -1,0 +1,156 @@
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  annotations:
+    controller-gen.kubebuilder.io/version: v0.13.0
+  name: clustercidrs.cluster.cidr.x-k8s.io
+spec:
+  group: cluster.cidr.x-k8s.io
+  names:
+    kind: ClusterCIDR
+    listKind: ClusterCIDRList
+    plural: clustercidrs
+    singular: clustercidr
+  scope: Namespaced
+  versions:
+  - name: v1
+    schema:
+      openAPIV3Schema:
+        description: 'ClusterCIDR represents a single configuration for per-Node Pod
+          CIDR allocations when the MultiCIDRRangeAllocator is enabled (see the config
+          for kube-controller-manager).  A cluster may have any number of ClusterCIDR
+          resources, all of which will be considered when allocating a CIDR for a
+          Node.  A ClusterCIDR is eligible to be used for a given Node when the node
+          selector matches the node in question and has free CIDRs to allocate.  In
+          case of multiple matching ClusterCIDR resources, the allocator will attempt
+          to break ties using internal heuristics, but any ClusterCIDR whose node
+          selector matches the Node may be used. todo(mneverov): status?'
+        properties:
+          apiVersion:
+            description: 'APIVersion defines the versioned schema of this representation
+              of an object. Servers should convert recognized schemas to the latest
+              internal value, and may reject unrecognized values. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#resources'
+            type: string
+          kind:
+            description: 'Kind is a string value representing the REST resource this
+              object represents. Servers may infer this from the endpoint the client
+              submits requests to. Cannot be updated. In CamelCase. More info: https://git.k8s.io/community/contributors/devel/sig-architecture/api-conventions.md#types-kinds'
+            type: string
+          metadata:
+            type: object
+          spec:
+            description: ClusterCIDRSpec defines the desired state of ClusterCIDR.
+            properties:
+              ipv4:
+                description: ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
+                  At least one of ipv4 and ipv6 must be specified. This field is optional
+                  and immutable.
+                type: string
+              ipv6:
+                description: ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
+                  At least one of ipv4 and ipv6 must be specified. This field is optional
+                  and immutable.
+                type: string
+              nodeSelector:
+                description: nodeSelector defines which nodes the config is applicable
+                  to. An empty or nil nodeSelector selects all nodes. This field is
+                  optional and immutable.
+                properties:
+                  nodeSelectorTerms:
+                    description: Required. A list of node selector terms. The terms
+                      are ORed.
+                    items:
+                      description: A null or empty node selector term matches no objects.
+                        The requirements of them are ANDed. The TopologySelectorTerm
+                        type implements a subset of the NodeSelectorTerm.
+                      properties:
+                        matchExpressions:
+                          description: A list of node selector requirements by node's
+                            labels.
+                          items:
+                            description: A node selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a
+                                  set of values. Valid operators are In, NotIn, Exists,
+                                  DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator
+                                  is In or NotIn, the values array must be non-empty.
+                                  If the operator is Exists or DoesNotExist, the values
+                                  array must be empty. If the operator is Gt or Lt,
+                                  the values array must have a single element, which
+                                  will be interpreted as an integer. This array is
+                                  replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                        matchFields:
+                          description: A list of node selector requirements by node's
+                            fields.
+                          items:
+                            description: A node selector requirement is a selector
+                              that contains values, a key, and an operator that relates
+                              the key and values.
+                            properties:
+                              key:
+                                description: The label key that the selector applies
+                                  to.
+                                type: string
+                              operator:
+                                description: Represents a key's relationship to a
+                                  set of values. Valid operators are In, NotIn, Exists,
+                                  DoesNotExist. Gt, and Lt.
+                                type: string
+                              values:
+                                description: An array of string values. If the operator
+                                  is In or NotIn, the values array must be non-empty.
+                                  If the operator is Exists or DoesNotExist, the values
+                                  array must be empty. If the operator is Gt or Lt,
+                                  the values array must have a single element, which
+                                  will be interpreted as an integer. This array is
+                                  replaced during a strategic merge patch.
+                                items:
+                                  type: string
+                                type: array
+                            required:
+                            - key
+                            - operator
+                            type: object
+                          type: array
+                      type: object
+                      x-kubernetes-map-type: atomic
+                    type: array
+                required:
+                - nodeSelectorTerms
+                type: object
+                x-kubernetes-map-type: atomic
+              perNodeHostBits:
+                description: perNodeHostBits defines the number of host bits to be
+                  configured per node. A subnet mask determines how much of the address
+                  is used for network bits and host bits. For example an IPv4 address
+                  of 192.168.0.0/24, splits the address into 24 bits for the network
+                  portion and 8 bits for the host portion. To allocate 256 IPs, set
+                  this field to 8 (a /24 mask for IPv4 or a /120 for IPv6). Minimum
+                  value is 4 (16 IPs). This field is required and immutable.
+                format: int32
+                type: integer
+            required:
+            - perNodeHostBits
+            type: object
+        type: object
+    served: true
+    storage: true
