@@ -1,4 +1,4 @@
-name: Test
+name: Lint and Test
 
 on:
   push:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Go
+      - name: Setup Go
         uses: actions/setup-go@v4
         with:
           go-version-file: go.mod
