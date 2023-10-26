@@ -5,6 +5,7 @@ import (
 	"os"
 
 	clustercidrv1 "github.com/mneverov/cluster-cidr/pkg/api/v1"
+	"github.com/mneverov/cluster-cidr/pkg/webhooks"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -56,18 +57,23 @@ func main() {
 		LeaderElectionID:       "cluster-cidr-controller.networking.k8s.io",
 	})
 	if err != nil {
-		setupLog.Error(err, "unable to start manager")
+		setupLog.Error(err, "failed to start manager")
 		os.Exit(1)
 	}
 
 	//+kubebuilder:scaffold:builder
 
 	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up health check")
+		setupLog.Error(err, "failed to set up health check")
 		os.Exit(1)
 	}
 	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "unable to set up ready check")
+		setupLog.Error(err, "failed to set up ready check")
+		os.Exit(1)
+	}
+
+	if (&webhooks.ClusterCIDRValidator{}).SetupWithManager(mgr) != nil {
+		setupLog.Error(err, "failed to setup webhook", "webhook", "ClusterCIDR")
 		os.Exit(1)
 	}
 
