@@ -40,4 +40,4 @@ issues:
         - errcheck
         - unparam
 run:
-  timeout: 2m
+  timeout: 4m
