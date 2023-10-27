@@ -1,4 +1,4 @@
-name: Test
+name: Lint and Test
 
 on:
   push:
@@ -15,10 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: install Go
+      - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version: 1.21.x
+          go-version-file: go.mod
+          cache: false
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v3
