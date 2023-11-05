@@ -5,7 +5,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/mneverov/cluster-cidr/pkg/api/v1"
+	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/v1"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -13,7 +13,7 @@ import (
 )
 
 // Only testing happy path and failure to make sure that the webhook is invoked.
-// ClusterCIDR validation is actually tested in /pkg/api/v1/validation.
+// ClusterCIDR validation is actually tested in /pkg/apis/v1/validation.
 
 var _ = Describe("ClusterCIDRValidator", func() {
 	It("should allow to create a valid ClusterCIDR", func(ctx context.Context) {

@@ -15,6 +15,6 @@ resources:
   domain: cidr.x-k8s.io
   group: cluster
   kind: ClusterCIDR
-  path: github.com/mneverov/cluster-cidr/pkg/api/v1
+  path: github.com/mneverov/cluster-cidr-controller/pkg/apis/v1
   version: v1
 version: "3"

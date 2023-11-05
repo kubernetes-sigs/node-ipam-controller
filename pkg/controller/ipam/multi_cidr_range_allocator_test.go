@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/mneverov/cluster-cidr/pkg/controller/ipam/multicidrset"
-	"github.com/mneverov/cluster-cidr/pkg/controller/ipam/test"
+	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
+	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/test"
 
 	"github.com/stretchr/testify/assert"
 	v1 "k8s.io/api/core/v1"

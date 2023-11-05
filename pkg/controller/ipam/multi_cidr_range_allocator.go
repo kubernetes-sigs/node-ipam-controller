@@ -26,9 +26,9 @@ import (
 	"sync"
 	"time"
 
-	cidrset "github.com/mneverov/cluster-cidr/pkg/controller/ipam/multicidrset"
-	controllerutil "github.com/mneverov/cluster-cidr/pkg/util/node"
-	"github.com/mneverov/cluster-cidr/pkg/util/slice"
+	cidrset "github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
+	controllerutil "github.com/mneverov/cluster-cidr-controller/pkg/util/node"
+	"github.com/mneverov/cluster-cidr-controller/pkg/util/slice"
 
 	v1 "k8s.io/api/core/v1"
 	networkingv1alpha1 "k8s.io/api/networking/v1alpha1"
