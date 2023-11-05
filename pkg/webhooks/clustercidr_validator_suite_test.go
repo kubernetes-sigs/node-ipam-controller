@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/api/v1"
+	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/v1"
 
 	"sigs.k8s.io/controller-runtime/pkg/metrics/server"
 	"sigs.k8s.io/controller-runtime/pkg/webhook"

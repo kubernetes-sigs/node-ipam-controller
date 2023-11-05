@@ -4,7 +4,7 @@ import (
 	"flag"
 	"os"
 
-	clustercidrv1 "github.com/mneverov/cluster-cidr-controller/pkg/api/v1"
+	clustercidrv1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/v1"
 	"github.com/mneverov/cluster-cidr-controller/pkg/webhooks"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)

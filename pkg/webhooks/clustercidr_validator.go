@@ -3,8 +3,8 @@ package webhooks
 import (
 	"context"
 
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/api/v1"
-	"github.com/mneverov/cluster-cidr-controller/pkg/api/v1/validation"
+	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/v1"
+	"github.com/mneverov/cluster-cidr-controller/pkg/apis/v1/validation"
 
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
