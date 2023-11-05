@@ -1,6 +1,6 @@
 module github.com/mneverov/cluster-cidr-controller
 
-go 1.20
+go 1.21
 
 require (
 	github.com/evanphx/json-patch v5.6.0+incompatible
