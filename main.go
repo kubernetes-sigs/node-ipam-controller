@@ -4,8 +4,8 @@ import (
 	"flag"
 	"os"
 
-	clustercidrv1 "github.com/mneverov/cluster-cidr/pkg/api/v1"
-	"github.com/mneverov/cluster-cidr/pkg/webhooks"
+	clustercidrv1 "github.com/mneverov/cluster-cidr-controller/pkg/api/v1"
+	"github.com/mneverov/cluster-cidr-controller/pkg/webhooks"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.

@@ -20,7 +20,7 @@ import (
 	"container/heap"
 	"testing"
 
-	"github.com/mneverov/cluster-cidr/pkg/controller/ipam/multicidrset"
+	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
 	utilnet "k8s.io/utils/net"
 )
 

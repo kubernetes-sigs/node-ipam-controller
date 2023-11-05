@@ -1,1 +1,1 @@
-# cluster-cidr
+# cluster-cidr-controller

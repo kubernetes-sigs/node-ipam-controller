@@ -1,4 +1,4 @@
-module github.com/mneverov/cluster-cidr
+module github.com/mneverov/cluster-cidr-controller
 
 go 1.20
 

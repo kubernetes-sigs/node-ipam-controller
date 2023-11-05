@@ -3,7 +3,7 @@ package validation
 import (
 	"testing"
 
-	"github.com/mneverov/cluster-cidr/pkg/api/v1"
+	"github.com/mneverov/cluster-cidr-controller/pkg/api/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
