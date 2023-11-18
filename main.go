@@ -2,84 +2,83 @@ package main
 
 import (
 	"flag"
-	"os"
+	"time"
 
-	clustercidrv1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/v1"
-	"github.com/mneverov/cluster-cidr-controller/pkg/webhooks"
+	clientset "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned"
+	informers "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions"
+	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam"
+	"github.com/mneverov/cluster-cidr-controller/pkg/signals"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	kubeinformers "k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-
-	"k8s.io/apimachinery/pkg/runtime"
-	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
-	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/healthz"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
-	//+kubebuilder:scaffold:imports
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/klog/v2"
 )
 
+const defaultResync = 30 * time.Second
+
 var (
-	scheme   = runtime.NewScheme()
-	setupLog = ctrl.Log.WithName("setup")
+	apiServerURL string
+	kubeconfig   string
 )
 
 func init() {
-	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
-	utilruntime.Must(clustercidrv1.AddToScheme(scheme))
-	//+kubebuilder:scaffold:scheme
+	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 }
 
 func main() {
-	var metricsAddr string
-	var enableLeaderElection bool
-	var probeAddr string
-	flag.StringVar(&metricsAddr, "metrics-bind-address", ":8080", "The address the metric endpoint binds to.")
-	flag.StringVar(&probeAddr, "health-probe-bind-address", ":8081", "The address the probe endpoint binds to.")
-	flag.BoolVar(&enableLeaderElection, "leader-elect", false,
-		"Enable leader election for controller manager. "+
-			"Enabling this will ensure there is only one active controller manager.")
-	opts := zap.Options{
-		Development: true,
-	}
-	opts.BindFlags(flag.CommandLine)
+	klog.InitFlags(nil)
 	flag.Parse()
 
-	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&opts)))
+	ctx := signals.SetupSignalHandler()
+	logger := klog.FromContext(ctx)
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:                 scheme,
-		Metrics:                metricsserver.Options{BindAddress: metricsAddr},
-		HealthProbeBindAddress: probeAddr,
-		LeaderElection:         enableLeaderElection,
-		LeaderElectionID:       "cluster-cidr-controller.networking.k8s.io",
-	})
+	cfg, err := clientcmd.BuildConfigFromFlags(apiServerURL, kubeconfig)
 	if err != nil {
-		setupLog.Error(err, "failed to start manager")
-		os.Exit(1)
+		logger.Error(err, "failed to build kubeconfig")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	//+kubebuilder:scaffold:builder
-
-	if err := mgr.AddHealthzCheck("healthz", healthz.Ping); err != nil {
-		setupLog.Error(err, "failed to set up health check")
-		os.Exit(1)
-	}
-	if err := mgr.AddReadyzCheck("readyz", healthz.Ping); err != nil {
-		setupLog.Error(err, "failed to set up ready check")
-		os.Exit(1)
+	kubeClient, err := kubernetes.NewForConfig(cfg)
+	if err != nil {
+		logger.Error(err, "failed to build kubernetes clientset")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	if (&webhooks.ClusterCIDRValidator{}).SetupWithManager(mgr) != nil {
-		setupLog.Error(err, "failed to setup webhook", "webhook", "ClusterCIDR")
-		os.Exit(1)
+	cidrClient, err := clientset.NewForConfig(cfg)
+	if err != nil {
+		logger.Error(err, "failed to build kubernetes clientset")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, defaultResync)
+	sharedInformerFactory := informers.NewSharedInformerFactory(cidrClient, defaultResync)
+
+	nodes, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil {
+		logger.Error(err, "failed to list existing nodes")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
+
+	cidrController, err := ipam.NewMultiCIDRRangeAllocator(ctx, kubeClient, cidrClient.NetworkingV1().ClusterCIDRs(),
+		kubeInformerFactory.Core().V1().Nodes(),
+		sharedInformerFactory.Networking().V1().ClusterCIDRs(),
+		ipam.CIDRAllocatorParams{},
+		nodes,
+		nil,
+	)
+	if err != nil {
+		logger.Error(err, "failed to create CIDR controller")
+		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+	}
+
+	kubeInformerFactory.Start(ctx.Done())
+	sharedInformerFactory.Start(ctx.Done())
+
+	cidrController.Run(ctx)
 }

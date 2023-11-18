@@ -14,9 +14,12 @@ import (
 // case of multiple matching ClusterCIDR resources, the allocator will attempt
 // to break ties using internal heuristics, but any ClusterCIDR whose node
 // selector matches the Node may be used.
-// todo(mneverov): status?
 // +kubebuilder:object:root=true
 // +kubebuilder:resource:scope=Cluster
+// +genclient
+// +genclient:noStatus
+// +genclient:nonNamespaced
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ClusterCIDR struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
@@ -43,6 +46,7 @@ type ClusterCIDRSpec struct {
 	// Minimum value is 4 (16 IPs).
 	// This field is required and immutable.
 	// +kubebuilder:validation:Required
+	// +required
 	PerNodeHostBits int32 `json:"perNodeHostBits"`
 
 	// ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
@@ -60,6 +64,7 @@ type ClusterCIDRSpec struct {
 
 // ClusterCIDRList contains a list of ClusterCIDRs.
 // +kubebuilder:object:root=true
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
 type ClusterCIDRList struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
@@ -67,8 +72,4 @@ type ClusterCIDRList struct {
 
 	// items is the list of ClusterCIDRs.
 	Items []ClusterCIDR `json:"items"`
-}
-
-func init() {
-	SchemeBuilder.Register(&ClusterCIDR{}, &ClusterCIDRList{})
 }

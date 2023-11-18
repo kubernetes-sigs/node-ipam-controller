@@ -2,7 +2,7 @@ VERSION ?= $(shell git describe --tags --always --dirty)
 GOENV ?= GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 LDFLAGS ?= -X main.Version=$(VERSION)
 TAG ?= latest
-IMG ?= cluster-cider-controller:${TAG}
+IMG ?= cluster-cidr-controller:${TAG}
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.28.0
 

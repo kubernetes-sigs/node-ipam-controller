@@ -40,4 +40,6 @@ issues:
         - errcheck
         - unparam
 run:
+  skip-dirs:
+    - pkg/client
   timeout: 4m

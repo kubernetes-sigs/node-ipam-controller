@@ -4,9 +4,9 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.13.0
-  name: clustercidrs.cluster.cidr.x-k8s.io
+  name: clustercidrs.networking.x-k8s.io
 spec:
-  group: cluster.cidr.x-k8s.io
+  group: networking.x-k8s.io
   names:
     kind: ClusterCIDR
     listKind: ClusterCIDRList
@@ -17,7 +17,7 @@ spec:
   - name: v1
     schema:
       openAPIV3Schema:
-        description: 'ClusterCIDR represents a single configuration for per-Node Pod
+        description: ClusterCIDR represents a single configuration for per-Node Pod
           CIDR allocations when the MultiCIDRRangeAllocator is enabled (see the config
           for kube-controller-manager).  A cluster may have any number of ClusterCIDR
           resources, all of which will be considered when allocating a CIDR for a
@@ -25,7 +25,7 @@ spec:
           selector matches the node in question and has free CIDRs to allocate.  In
           case of multiple matching ClusterCIDR resources, the allocator will attempt
           to break ties using internal heuristics, but any ClusterCIDR whose node
-          selector matches the Node may be used. todo(mneverov): status?'
+          selector matches the Node may be used.
         properties:
           apiVersion:
             description: 'APIVersion defines the versioned schema of this representation
