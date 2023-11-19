@@ -4,5 +4,5 @@ metadata:
   name: clustercidr-test
 spec:
   perNodeHostBits: 8
-  ipv4: 10.10.10.0/8
-  ipv6: 2001:db8::/64
+  ipv4: 10.244.0.0/16
+  ipv6: 2001:db8::/110
