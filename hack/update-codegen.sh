@@ -18,24 +18,23 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
-SCRIPT_ROOT=$(dirname "${BASH_SOURCE[0]}")/..
+PROJECT_ROOT=$(realpath $(dirname "${BASH_SOURCE[0]}")/..)
 
 CODEGEN_VERSION=$(go list -m -f '{{.Version}}' k8s.io/code-generator)
 CODEGEN_PKG=${CODEGEN_PKG:-$(go env GOPATH)"/pkg/mod/k8s.io/code-generator@${CODEGEN_VERSION}"}
 
-source "${CODEGEN_PKG}/kube_codegen.sh"
+cd $(dirname "${BASH_SOURCE[0]}")/..
 
-# gen_helpers operates with packages i.e. github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1.
-# That is the reason we need to specify --output-base to be "./hack/../../../.." i.e. $GOPATH/src.
+source "${CODEGEN_PKG}/kube_codegen.sh"
 
 kube::codegen::gen_helpers \
     --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
-    --output-base "$(dirname "${BASH_SOURCE[0]}")/../../../.." \
-    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt"
+    --output-base "${PROJECT_ROOT}" \
+    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
 
 kube::codegen::gen_client \
     --with-watch \
     --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
     --output-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/client \
-    --output-base "$(dirname "${BASH_SOURCE[0]}")/../../../.." \
-    --boilerplate "${SCRIPT_ROOT}/hack/boilerplate.go.txt"
+    --output-base "PROJECT_ROOT" \
+    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
