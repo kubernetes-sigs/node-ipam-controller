@@ -107,8 +107,8 @@ jobs:
         /usr/local/bin/kubectl create -f samples/clustercidr.yaml
         
         # configure controller version and disable installing CRD
-        sed -i s/tag.*/tag:"ci-e2e-test"/ charts/cluster-cidr-controller/values.yaml
-        sed -i s/installCRDs: true/installCRDs: false/ charts/cluster-cidr-controller/values.yaml
+        sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/cluster-cidr-controller/values.yaml
+        sed -i 's/installCRDs: true/installCRDs: false/' charts/cluster-cidr-controller/values.yaml
         
         # install the controller
         helm template charts/cluster-cidr-controller --values charts/cluster-cidr-controller/values.yaml  > temp.yaml
