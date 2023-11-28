@@ -96,6 +96,12 @@ jobs:
 
     - name: Install cluster-cidr-controller
       run: |
+        # install CRD
+        /usr/local/bin/kubectl create -f charts/cluster-cidr-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
+        
+        # create ClusterCIDR
+        /usr/local/bin/kubectl create -f samples/clustercidr.yaml
+        
         # preload image
         docker load --input clustercidr-controller-image.tar
         /usr/local/bin/kind load docker-image ghcr.io/mneverov/cluster-cidr-controller:ci-e2e-test --name ${{ env.KIND_CLUSTER_NAME}}
