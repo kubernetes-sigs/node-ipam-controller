@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"flag"
+	"net/http"
 	"time"
 
 	clientset "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned"
@@ -19,19 +21,17 @@ import (
 	"k8s.io/klog/v2"
 )
 
-const defaultResync = 30 * time.Second
+func main() {
+	var (
+		apiServerURL    string
+		kubeconfig      string
+		healthProbeAddr string
+	)
 
-var (
-	apiServerURL string
-	kubeconfig   string
-)
-
-func init() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-}
+	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
 
-func main() {
 	klog.InitFlags(nil)
 	flag.Parse()
 
@@ -56,6 +56,7 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
+	const defaultResync = 30 * time.Second
 	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, defaultResync)
 	sharedInformerFactory := informers.NewSharedInformerFactory(cidrClient, defaultResync)
 
@@ -80,5 +81,42 @@ func main() {
 	kubeInformerFactory.Start(ctx.Done())
 	sharedInformerFactory.Start(ctx.Done())
 
+	server := startHealthProbeServer(healthProbeAddr, logger)
 	cidrController.Run(ctx)
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error(err, "failed to shut down health server")
+	}
+}
+
+func startHealthProbeServer(addr string, logger klog.Logger) *http.Server {
+	const defaultTimeout = 30 * time.Second
+	mux := http.NewServeMux()
+	server := &http.Server{
+		Addr:         addr,
+		Handler:      mux,
+		ReadTimeout:  defaultTimeout,
+		WriteTimeout: defaultTimeout,
+		IdleTimeout:  defaultTimeout,
+	}
+
+	mux.Handle("/readyz", makeHealthHandler())
+	mux.Handle("/healthz", makeHealthHandler())
+
+	go func() {
+		err := server.ListenAndServe()
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			logger.Error(err, "an error occurred after stopping the health server")
+		}
+	}()
+
+	return server
+}
+
+// makeHealthHandler returns 200/OK when healthy
+func makeHealthHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer r.Body.Close()
+
+		w.WriteHeader(http.StatusOK)
+	}
 }
