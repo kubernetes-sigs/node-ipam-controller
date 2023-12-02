@@ -1,3 +1,0 @@
-- generate [conversion](https://github.com/kubernetes/kubernetes/pull/121229/files#diff-7b4068e1ab10cde83d58fb3c6c4874a8e2cdcfb649f998f5d1a0711312167b81) and [proto](https://github.com/kubernetes/kubernetes/pull/121229/files#diff-b7529b303b5f4c86271cc314d9505f6894475b09a3dfa96149c44d8d101df563)?
-- keep CRD generation via kubebuilder?
-- instantiate controller
