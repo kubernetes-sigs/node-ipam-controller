@@ -27,15 +27,18 @@ jobs:
           version: v1.54
 
   test:
-    runs-on: ubuntu-latest
     name: Run Tests
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: github.com/mneverov/cluster-cidr-controller
 
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version-file: go.mod
+          go-version-file: github.com/mneverov/cluster-cidr-controller/go.mod
 
       - name: Test
+        working-directory: github.com/mneverov/cluster-cidr-controller
         run: make test

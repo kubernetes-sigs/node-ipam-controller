@@ -27,6 +27,9 @@ cd $(dirname "${BASH_SOURCE[0]}")/..
 
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
+ln -s ../.. github.com
+trap "rm github.com" EXIT
+
 kube::codegen::gen_helpers \
     --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
     --output-base "${PROJECT_ROOT}" \
@@ -36,5 +39,5 @@ kube::codegen::gen_client \
     --with-watch \
     --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
     --output-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/client \
-    --output-base "PROJECT_ROOT" \
+    --output-base "${PROJECT_ROOT}" \
     --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
