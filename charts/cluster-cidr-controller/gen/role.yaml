@@ -18,9 +18,8 @@ rules:
   verbs:
   - get
   - list
-  - watch
   - patch
-  - update
+  - watch
 - apiGroups:
   - networking.x-k8s.io
   resources:
