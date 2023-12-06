@@ -18,6 +18,7 @@ spec:
       labels:
         {{- include "cluster-cidr-controller.selectorLabels" . | nindent 8 }}
     spec:
+      hostNetwork: true
       serviceAccountName: {{ include "cluster-cidr-controller.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
