@@ -158,7 +158,7 @@ jobs:
 
         # Run tests
         /usr/local/bin/ginkgo --nodes=25                  \
-          --focus="\[Conformance\]"                       \
+          --focus="Networking.Granular.Checks"            \
           --skip="Feature|Federation|machinery|PerformanceDNS|DualStack|Disruptive|Serial|Slow|KubeProxy|LoadBalancer|GCE|Netpol|NetworkPolicy|NodeConformance"   \
           /usr/local/bin/e2e.test                         \
           --                                              \
