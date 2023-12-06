@@ -85,6 +85,8 @@ jobs:
             controllerManager:
               extraArgs:
                 allocate-node-cidrs: "false"
+        - role: worker
+        - role: worker
         EOF
         /usr/local/bin/kind get kubeconfig --name ${{ env.KIND_CLUSTER_NAME}} > _artifacts/kubeconfig.conf
 
