@@ -112,16 +112,18 @@ jobs:
         cat temp.yaml
         /usr/local/bin/kubectl apply -f ./temp.yaml
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=cluster-cidr-controller
+        /usr/local/bin/kubectl get nodes -o wide
+        /usr/local/bin/kubectl get pods -A
 
     - name: Get Cluster status
       run: |
         # restart kindnet because of bug https://github.com/kubernetes-sigs/kind/pull/3438
         kubectl -n kube-system rollout restart ds kindnet
-        # wait network is ready
-        sleep 5
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
+        /usr/local/bin/kubectl get nodes -o wide
+        /usr/local/bin/kubectl get pods -A
 
     - name: Workaround CoreDNS for IPv6 airgapped
       if: ${{ matrix.ipFamily == 'ipv6' }}
