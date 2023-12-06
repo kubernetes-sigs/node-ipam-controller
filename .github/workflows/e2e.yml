@@ -77,6 +77,7 @@ jobs:
         apiVersion: kind.x-k8s.io/v1alpha4
         networking:
           ipFamily: ${IP_FAMILY}
+          disableDefaultCNI: true
         nodes:
         - role: control-plane
           kubeadmConfigPatches:
@@ -117,8 +118,8 @@ jobs:
 
     - name: Get Cluster status
       run: |
-        # restart kindnet because of bug https://github.com/kubernetes-sigs/kind/pull/3438
-        kubectl -n kube-system rollout restart ds kindnet
+        # install kindnet because of bug https://github.com/kubernetes-sigs/kind/pull/3438
+        kubectl apply -f https://raw.githubusercontent.com/aojea/kindnet/master/install-kindnet.yaml
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
         sleep 20
