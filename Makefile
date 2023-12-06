@@ -65,7 +65,7 @@ lint: ## Run golangci check.
 KUBEBUILDER_ASSETS=$(shell go run sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) -p path)
 
 .PHONY: test
-test: manifests generate fmt ## Run tests.
+test: fmt ## Run tests.
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test ./... -coverprofile cover.out
 
 ##@ Build

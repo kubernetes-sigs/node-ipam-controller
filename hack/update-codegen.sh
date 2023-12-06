@@ -18,6 +18,7 @@ set -o errexit
 set -o nounset
 set -o pipefail
 
+PROJECT="github.com/mneverov/cluster-cidr-controller"
 PROJECT_ROOT=$(realpath $(dirname "${BASH_SOURCE[0]}")/..)
 
 CODEGEN_VERSION=$(go list -m -f '{{.Version}}' k8s.io/code-generator)
@@ -28,13 +29,13 @@ cd $(dirname "${BASH_SOURCE[0]}")/..
 source "${CODEGEN_PKG}/kube_codegen.sh"
 
 kube::codegen::gen_helpers \
-    --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
-    --output-base "${PROJECT_ROOT}" \
-    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
+    --input-pkg-root "${PROJECT}/pkg/apis" \
+    --output-base "$(dirname "${BASH_SOURCE[0]}")/../../../.." \
+    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt" \
 
 kube::codegen::gen_client \
     --with-watch \
-    --input-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/apis \
-    --output-pkg-root github.com/mneverov/cluster-cidr-controller/pkg/client \
-    --output-base "PROJECT_ROOT" \
+    --input-pkg-root "${PROJECT}/pkg/apis" \
+    --output-pkg-root "${PROJECT}/pkg/client" \
+    --output-base "$(dirname "${BASH_SOURCE[0]}")/../../../.." \
     --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
