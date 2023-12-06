@@ -122,6 +122,8 @@ jobs:
         sleep 20
         /usr/local/bin/kubectl get po --namespace=kube-system -l app=kindnet -oyaml
         /usr/local/bin/kubectl describe po --namespace=kube-system -l app=kindnet
+        /usr/local/bin/kubectl get pods -A
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l app=kindnet
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods --namespace=kube-system -l k8s-app=kube-dns
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
