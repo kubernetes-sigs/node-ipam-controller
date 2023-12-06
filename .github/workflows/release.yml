@@ -9,7 +9,7 @@ permissions:
   packages: write
 
 jobs:
-  goreleaser:
+  release:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

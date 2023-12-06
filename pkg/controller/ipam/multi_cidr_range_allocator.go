@@ -82,7 +82,7 @@ const (
 )
 
 // +kubebuilder:rbac:groups=networking.x-k8s.io,resources=clustercidrs,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch
+// +kubebuilder:rbac:groups=core,resources=nodes,verbs=get;list;watch;patch;update
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // CIDRAllocator is an interface implemented by things that know how

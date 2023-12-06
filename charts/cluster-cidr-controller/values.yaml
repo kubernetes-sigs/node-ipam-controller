@@ -39,6 +39,30 @@ resources:
     memory: 128Mi
 
 nodeSelector: {}
-tolerations: []
+tolerations:
+  - effect: NoExecute
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/not-ready
+    operator: Exists
+  - effect: NoExecute
+    operator: Exists
+    key: node.kubernetes.io/unreachable
+  - effect: NoSchedule
+    key: node.kubernetes.io/disk-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/memory-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/pid-pressure
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/unschedulable
+    operator: Exists
+  - effect: NoSchedule
+    key: node.kubernetes.io/network-unavailable
+    operator: Exists
 affinity: {}
 installCRDs: true
