@@ -117,6 +117,8 @@ jobs:
 
     - name: Get Cluster status
       run: |
+        # restart kindnet because of bug https://github.com/kubernetes-sigs/kind/pull/3438
+         kubectl -n kube-system rollout restart ds kindnet
         # wait network is ready
         sleep 5
         /usr/local/bin/kubectl get nodes -o wide
