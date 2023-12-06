@@ -102,23 +102,21 @@ jobs:
 
         # install CRD separately
         /usr/local/bin/kubectl create -f charts/cluster-cidr-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
-        
         # create ClusterCIDR
         /usr/local/bin/kubectl create -f samples/clustercidr.yaml
-        
         # configure controller version and disable installing CRD
         sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/cluster-cidr-controller/values.yaml
         sed -i 's/installCRDs: true/installCRDs: false/' charts/cluster-cidr-controller/values.yaml
-        
         # install the controller
         helm template charts/cluster-cidr-controller --values charts/cluster-cidr-controller/values.yaml  > temp.yaml
         cat temp.yaml
         /usr/local/bin/kubectl apply -f ./temp.yaml
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=cluster-cidr-controller
 
     - name: Get Cluster status
       run: |
         # restart kindnet because of bug https://github.com/kubernetes-sigs/kind/pull/3438
-         kubectl -n kube-system rollout restart ds kindnet
+        kubectl -n kube-system rollout restart ds kindnet
         # wait network is ready
         sleep 5
         /usr/local/bin/kubectl get nodes -o wide
