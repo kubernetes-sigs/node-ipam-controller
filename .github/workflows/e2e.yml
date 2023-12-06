@@ -172,7 +172,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v3
       with:
-        name: kind-junit-clustercidr-e2e-${{ github.run_id }}
+        name: kind-junit-clustercidr-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: './_artifacts/*.xml'
 
     - name: Export logs
@@ -184,5 +184,5 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v3
       with:
-        name: kind-logs-clustercidr-e2e-${{ github.run_id }}
+        name: kind-logs-clustercidr-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: ./_artifacts/logs
