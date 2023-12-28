@@ -28,6 +28,10 @@ const (
 )
 
 var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
+	var (
+		nodesToCleanup       []*corev1.Node
+		clusterCIDRToCleanup *v1.ClusterCIDR
+	)
 	ginkgo.BeforeAll(func() {
 		ctx, cancel = context.WithTimeout(context.Background(), 15*time.Second)
 
@@ -57,17 +61,38 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 	})
 	ginkgo.AfterAll(func() { cancel() })
 
+	ginkgo.BeforeEach(func() {
+		nodesToCleanup = nil
+		clusterCIDRToCleanup = nil
+	})
+	ginkgo.AfterEach(func() {
+		if len(nodesToCleanup) > 0 {
+			for _, n := range nodesToCleanup {
+				gomega.Expect(
+					kubeClient.CoreV1().Nodes().Delete(ctx, n.Name, metav1.DeleteOptions{}),
+				).To(gomega.Succeed())
+			}
+		}
+		if clusterCIDRToCleanup != nil {
+			gomega.Expect(
+				cidrClient.NetworkingV1().ClusterCIDRs().Delete(ctx, clusterCIDRToCleanup.Name, metav1.DeleteOptions{}),
+			).To(gomega.Succeed())
+		}
+	})
+
 	ginkgo.DescribeTable("should allocate Pod CIDRs",
 		func(clusterCIDR *v1.ClusterCIDR, node *corev1.Node, expectedPodCIDRs []string) {
 			if clusterCIDR != nil {
 				ginkgo.By("creating a clusterCIDR")
 				_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
 				gomega.Expect(err).NotTo(gomega.HaveOccurred())
+				clusterCIDRToCleanup = clusterCIDR
 			}
 
 			ginkgo.By("creating a node")
 			_, err := kubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
 			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+			nodesToCleanup = []*corev1.Node{node}
 			gomega.Eventually(komega.Object(node)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
 				return n.Spec.PodCIDRs
 			}, gomega.Equal(expectedPodCIDRs)))
@@ -93,11 +118,54 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			[]string{"fd00:20:100::/120"},
 		),
 		ginkgo.Entry("DualStack Pod CIDRs assigned to a node",
-			makeClusterCIDR("dualstack-cc", "192.168.0.0/16", "fd00:30:100::/112", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-			makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true"}),
+			makeClusterCIDR("dualstack-allocate-cc", "192.168.0.0/16", "fd00:30:100::/112", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
+			makeNode("dualstack-allocate-node", map[string]string{"ipv4": "true", "ipv6": "true"}),
 			[]string{"192.168.0.0/24", "fd00:30:100::/120"},
 		),
 	)
+
+	ginkgo.It("should release Pod CIDR after node is deleted", func() {
+		// Create the test ClusterCIDR.
+		clusterCIDR := makeClusterCIDR("dualstack-release-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		clusterCIDRToCleanup = clusterCIDR
+
+		// Create 1st node and validate that Pod CIDRs are correctly assigned.
+		node1 := makeNode("dualstack-release-node", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs1 := []string{"192.168.0.0/24", "fd00:30:100::/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node1, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Eventually(komega.Object(node1)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs1)))
+
+		// Create 2nd node and validate that Pod CIDRs are correctly assigned.
+		node2 := makeNode("dualstack-release-node-2", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs2 := []string{"192.168.1.0/24", "fd00:30:100::100/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node2, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nodesToCleanup = append(nodesToCleanup, node2)
+
+		gomega.Eventually(komega.Object(node2)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs2)))
+
+		// Delete the 1st node, to validate that the PodCIDRs are released.
+		gomega.Expect(kubeClient.CoreV1().Nodes().Delete(ctx, node1.Name, metav1.DeleteOptions{})).To(gomega.Succeed())
+
+		// Create 3rd node, validate that it has Pod CIDRs assigned from the released CIDR.
+		node3 := makeNode("dualstack-release-node-3", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs3 := []string{"192.168.0.0/24", "fd00:30:100::/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node3, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nodesToCleanup = append(nodesToCleanup, node3)
+
+		gomega.Eventually(komega.Object(node3)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs3)))
+	})
 })
 
 func booststrapMultiCIDRRangeAllocator(
