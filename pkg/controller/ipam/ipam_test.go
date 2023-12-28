@@ -2,7 +2,9 @@ package ipam
 
 import (
 	"context"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"net"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 
 	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
@@ -165,6 +167,47 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		gomega.Eventually(komega.Object(node3)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
 			return n.Spec.PodCIDRs
 		}, gomega.Equal(expectedPodCIDRs3)))
+	})
+
+	ginkgo.It("should delete ClusterCIDR only after associated node is deleted", func() {
+		// Create a ClusterCIDR.
+		clusterCIDR := makeClusterCIDR("dualstack-cc-del", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create a node, which gets pod CIDR from the clusterCIDR created above.
+		node := makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs := []string{"192.168.0.0/24", "fd00:30:100::/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		gomega.Eventually(komega.Object(node)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs)))
+
+		// Delete the ClusterCIDR.
+		gomega.Expect(
+			cidrClient.NetworkingV1().ClusterCIDRs().Delete(ctx, clusterCIDR.Name, metav1.DeleteOptions{}),
+		).To(gomega.Succeed())
+
+		// Make sure that the ClusterCIDR is not deleted, as there is a node associated with it.
+		gomega.Consistently(komega.Object(clusterCIDR)).WithTimeout(5 * time.Second).
+			Should(gomega.WithTransform(func(obj client.Object) *metav1.Time {
+				return obj.GetDeletionTimestamp()
+			}, gomega.Not(gomega.BeZero())))
+
+		//Delete the node.
+		gomega.Expect(kubeClient.CoreV1().Nodes().Delete(ctx, node.Name, metav1.DeleteOptions{})).To(gomega.Succeed())
+
+		// Poll to make sure that the Node is deleted.
+		gomega.Eventually(komega.Get(node)).Should(gomega.WithTransform(func(err error) bool {
+			return apierrors.IsNotFound(err)
+		}, gomega.BeTrue()))
+
+		// Poll to make sure that the ClusterCIDR is now deleted, as there is no node associated with it.
+		gomega.Eventually(komega.Get(clusterCIDR)).Should(gomega.WithTransform(func(err error) bool {
+			return apierrors.IsNotFound(err)
+		}, gomega.BeTrue()))
 	})
 })
 
