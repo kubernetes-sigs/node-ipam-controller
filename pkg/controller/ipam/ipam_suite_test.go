@@ -65,7 +65,6 @@ var _ = ginkgo.BeforeSuite(func() {
 
 	err = v1.AddToScheme(scheme.Scheme)
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
-
 })
 
 var _ = ginkgo.AfterSuite(func() {

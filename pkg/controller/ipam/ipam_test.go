@@ -2,9 +2,7 @@ package ipam
 
 import (
 	"context"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"net"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"time"
 
 	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
@@ -15,11 +13,13 @@ import (
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	informers "k8s.io/client-go/informers/core/v1"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 )
 
@@ -196,18 +196,14 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 				return obj.GetDeletionTimestamp()
 			}, gomega.Not(gomega.BeZero())))
 
-		//Delete the node.
+		// Delete the node.
 		gomega.Expect(kubeClient.CoreV1().Nodes().Delete(ctx, node.Name, metav1.DeleteOptions{})).To(gomega.Succeed())
 
 		// Poll to make sure that the Node is deleted.
-		gomega.Eventually(komega.Get(node)).Should(gomega.WithTransform(func(err error) bool {
-			return apierrors.IsNotFound(err)
-		}, gomega.BeTrue()))
+		gomega.Eventually(komega.Get(node)).Should(gomega.WithTransform(apierrors.IsNotFound, gomega.BeTrue()))
 
 		// Poll to make sure that the ClusterCIDR is now deleted, as there is no node associated with it.
-		gomega.Eventually(komega.Get(clusterCIDR)).Should(gomega.WithTransform(func(err error) bool {
-			return apierrors.IsNotFound(err)
-		}, gomega.BeTrue()))
+		gomega.Eventually(komega.Get(clusterCIDR)).Should(gomega.WithTransform(apierrors.IsNotFound, gomega.BeTrue()))
 	})
 
 	ginkgo.It("should not allocate Pod CIDR from a terminating CC", func() {
