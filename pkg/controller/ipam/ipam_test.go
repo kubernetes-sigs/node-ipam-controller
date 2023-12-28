@@ -209,6 +209,53 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			return apierrors.IsNotFound(err)
 		}, gomega.BeTrue()))
 	})
+
+	ginkgo.It("should not allocate Pod CIDR from a terminating CC", func() {
+		// Create a ClusterCIDR which is the best match based on number of matching labels.
+		clusterCIDR := makeClusterCIDR("dualstack-cc-del", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		// Create a ClusterCIDR which has fewer matching labels than the previous ClusterCIDR.
+		clusterCIDR2 := makeClusterCIDR("few-label-match-cc-del", "10.1.0.0/23", "fd12:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}}))
+		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR2, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		clusterCIDRToCleanup = clusterCIDR2
+
+		// Create a node, which gets pod CIDR from the clusterCIDR created above.
+		node := makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs := []string{"192.168.0.0/24", "fd00:30:100::/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nodesToCleanup = append(nodesToCleanup, node)
+
+		gomega.Eventually(komega.Object(node)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs)))
+
+		// Delete the ClusterCIDR
+		gomega.Expect(
+			cidrClient.NetworkingV1().ClusterCIDRs().Delete(ctx, clusterCIDR.Name, metav1.DeleteOptions{}),
+		).To(gomega.Succeed())
+
+		// Make sure that the ClusterCIDR is not deleted, as there is a node associated with it.
+		gomega.Consistently(komega.Object(clusterCIDR)).WithTimeout(5 * time.Second).
+			Should(gomega.WithTransform(func(obj client.Object) *metav1.Time {
+				return obj.GetDeletionTimestamp()
+			}, gomega.Not(gomega.BeZero())))
+
+		// Create a node, which should get Pod CIDRs from the ClusterCIDR with fewer matching label Count,
+		// as the best match ClusterCIDR is marked as terminating.
+		node2 := makeNode("dualstack-node-2", map[string]string{"ipv4": "true", "ipv6": "true"})
+		expectedPodCIDRs2 := []string{"10.1.0.0/24", "fd12:30:100::/120"}
+		_, err = kubeClient.CoreV1().Nodes().Create(ctx, node2, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		nodesToCleanup = append(nodesToCleanup, node2)
+
+		gomega.Eventually(komega.Object(node2)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, gomega.Equal(expectedPodCIDRs2)))
+	})
 })
 
 func booststrapMultiCIDRRangeAllocator(
