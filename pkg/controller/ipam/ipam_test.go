@@ -163,6 +163,9 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		// Delete the 1st node, to validate that the PodCIDRs are released.
 		gomega.Expect(kubeClient.CoreV1().Nodes().Delete(ctx, node1.Name, metav1.DeleteOptions{})).To(gomega.Succeed())
 
+		// Sleep for one second to make sure the controller process the new created ClusterCIDR.
+		time.Sleep(1 * time.Second)
+
 		// Create 3rd node, validate that it has Pod CIDRs assigned from the released CIDR.
 		node3 := makeNode("dualstack-release-node-3", map[string]string{"ipv4": "true", "ipv6": "true"})
 		expectedPodCIDRs3 := []string{"192.168.0.0/24", "fd00:30:100::/120"}
