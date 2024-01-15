@@ -7,13 +7,13 @@ import (
 	sync "sync"
 	time "time"
 
-	versioned "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned"
-	clustercidr "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions/clustercidr"
-	internalinterfaces "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions/internalinterfaces"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	cache "k8s.io/client-go/tools/cache"
+	versioned "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
+	clustercidr "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr"
+	internalinterfaces "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/internalinterfaces"
 )
 
 // SharedInformerOption defines the functional option type for SharedInformerFactory.

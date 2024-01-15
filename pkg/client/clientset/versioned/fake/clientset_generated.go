@@ -3,14 +3,14 @@
 package fake
 
 import (
-	clientset "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned"
-	networkingv1 "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
-	fakenetworkingv1 "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned/typed/clustercidr/v1/fake"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/discovery"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/testing"
+	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
+	networkingv1 "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
+	fakenetworkingv1 "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1/fake"
 )
 
 // NewSimpleClientset returns a clientset that will respond with the provided objects.

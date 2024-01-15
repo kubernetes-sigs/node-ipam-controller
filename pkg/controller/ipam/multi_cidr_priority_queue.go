@@ -19,7 +19,7 @@ package ipam
 import (
 	"math"
 
-	cidrset "github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
+	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 )
 
 // A PriorityQueue implementation based on https://pkg.go.dev/container/heap#example-package-PriorityQueue

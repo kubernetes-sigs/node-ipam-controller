@@ -6,10 +6,10 @@ import (
 	"fmt"
 	"net/http"
 
-	networkingv1 "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	discovery "k8s.io/client-go/discovery"
 	rest "k8s.io/client-go/rest"
 	flowcontrol "k8s.io/client-go/util/flowcontrol"
+	networkingv1 "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 )
 
 type Interface interface {

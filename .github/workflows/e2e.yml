@@ -11,9 +11,9 @@ on:
 env:
   K8S_VERSION: "v1.27.3"
   KIND_VERSION: "v0.20.0"
-  KIND_CLUSTER_NAME: "clustercidr"
+  KIND_CLUSTER_NAME: "nodeipam"
   REGISTRY: ghcr.io
-  IMAGE_NAME: mneverov/cluster-cidr-controller
+  IMAGE_NAME: sigs.k8s.io/node-ipam-controller
 
 jobs:
   build-image:
@@ -30,14 +30,14 @@ jobs:
 
     - name: Build docker
       run: |
-        docker build -t ghcr.io/mneverov/cluster-cidr-controller:ci-e2e-test -f Dockerfile .
+        docker build -t ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test -f Dockerfile .
         mkdir _output
-        docker save --output _output/clustercidr-controller-image.tar ghcr.io/mneverov/cluster-cidr-controller:ci-e2e-test
+        docker save --output _output/node-ipam-controller-image.tar ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test
 
     - uses: actions/upload-artifact@v3
       with:
         name: test-image
-        path: _output/clustercidr-controller-image.tar
+        path: _output/node-ipam-controller-image.tar
 
   e2e:
     name: e2e
@@ -48,7 +48,7 @@ jobs:
       matrix:
         ipFamily: ["ipv4", "ipv6", "dual"]
     env:
-      JOB_NAME: "clustercidr-e2e-${{ matrix.ipFamily }}"
+      JOB_NAME: "nodeipam-e2e-${{ matrix.ipFamily }}"
       IP_FAMILY: ${{ matrix.ipFamily }}
     needs:
       - build-image
@@ -94,24 +94,24 @@ jobs:
       with:
         name: test-image
 
-    - name: Install cluster-cidr-controller
+    - name: Install node-ipam-controller
       run: |
         # preload image
-        docker load --input clustercidr-controller-image.tar
-        /usr/local/bin/kind load docker-image ghcr.io/mneverov/cluster-cidr-controller:ci-e2e-test --name ${{ env.KIND_CLUSTER_NAME}}
+        docker load --input node-ipam-controller-image.tar
+        /usr/local/bin/kind load docker-image ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test --name ${{ env.KIND_CLUSTER_NAME}}
 
         # install CRD separately
-        /usr/local/bin/kubectl create -f charts/cluster-cidr-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
+        /usr/local/bin/kubectl create -f charts/node-ipam-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
         # create ClusterCIDR
         /usr/local/bin/kubectl create -f samples/clustercidr-${IP_FAMILY}.yaml
         # configure controller version and disable installing CRD
-        sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/cluster-cidr-controller/values.yaml
-        sed -i 's/installCRDs: true/installCRDs: false/' charts/cluster-cidr-controller/values.yaml
+        sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/node-ipam-controller/values.yaml
+        sed -i 's/installCRDs: true/installCRDs: false/' charts/node-ipam-controller/values.yaml
         # install the controller
-        helm template charts/cluster-cidr-controller --values charts/cluster-cidr-controller/values.yaml  > temp.yaml
+        helm template charts/node-ipam-controller --values charts/node-ipam-controller/values.yaml  > temp.yaml
         cat temp.yaml
         /usr/local/bin/kubectl apply -f ./temp.yaml
-        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=cluster-cidr-controller
+        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=node-ipam-controller
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
 
@@ -174,7 +174,7 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v3
       with:
-        name: kind-junit-clustercidr-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
+        name: kind-junit-nodeipam-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: './_artifacts/*.xml'
 
     - name: Export logs
@@ -186,5 +186,5 @@ jobs:
       if: always()
       uses: actions/upload-artifact@v3
       with:
-        name: kind-logs-clustercidr-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
+        name: kind-logs-nodeipam-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: ./_artifacts/logs

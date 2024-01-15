@@ -5,9 +5,9 @@ package v1
 import (
 	"net/http"
 
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
-	"github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned/scheme"
 	rest "k8s.io/client-go/rest"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	"sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/scheme"
 )
 
 type NetworkingV1Interface interface {

@@ -1,7 +1,7 @@
 {{/*
 Expand the name of the chart.
 */}}
-{{- define "cluster-cidr-controller.name" -}}
+{{- define "node-ipam-controller.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
@@ -10,7 +10,7 @@ Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
 */}}
-{{- define "cluster-cidr-controller.fullname" -}}
+{{- define "node-ipam-controller.fullname" -}}
 {{- if .Values.fullnameOverride }}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
@@ -26,16 +26,16 @@ If release name contains chart name it will be used as a full name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
-{{- define "cluster-cidr-controller.chart" -}}
+{{- define "node-ipam-controller.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
 {{/*
 Common labels
 */}}
-{{- define "cluster-cidr-controller.labels" -}}
-helm.sh/chart: {{ include "cluster-cidr-controller.chart" . }}
-{{ include "cluster-cidr-controller.selectorLabels" . }}
+{{- define "node-ipam-controller.labels" -}}
+helm.sh/chart: {{ include "node-ipam-controller.chart" . }}
+{{ include "node-ipam-controller.selectorLabels" . }}
 {{- if .Chart.AppVersion }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 {{- end }}
@@ -45,14 +45,14 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{/*
 Selector labels
 */}}
-{{- define "cluster-cidr-controller.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "cluster-cidr-controller.name" . }}
+{{- define "node-ipam-controller.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "node-ipam-controller.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
 {{/*
 Create the name of the service account to use
 */}}
-{{- define "cluster-cidr-controller.serviceAccountName" -}}
-{{- default (include "cluster-cidr-controller.fullname" .) .Values.serviceAccount.name }}
+{{- define "node-ipam-controller.serviceAccountName" -}}
+{{- default (include "node-ipam-controller.fullname" .) .Values.serviceAccount.name }}
 {{- end }}

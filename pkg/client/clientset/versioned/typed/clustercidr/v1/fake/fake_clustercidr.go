@@ -5,12 +5,12 @@ package fake
 import (
 	"context"
 
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	labels "k8s.io/apimachinery/pkg/labels"
 	types "k8s.io/apimachinery/pkg/types"
 	watch "k8s.io/apimachinery/pkg/watch"
 	testing "k8s.io/client-go/testing"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 )
 
 // FakeClusterCIDRs implements ClusterCIDRInterface

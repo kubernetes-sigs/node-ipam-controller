@@ -1,14 +1,14 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "cluster-cidr-controller.fullname" . }}
+  name: {{ include "node-ipam-controller.fullname" . }}
   labels:
-    {{- include "cluster-cidr-controller.labels" . | nindent 4 }}
+    {{- include "node-ipam-controller.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicaCount }}
   selector:
     matchLabels:
-      {{- include "cluster-cidr-controller.selectorLabels" . | nindent 6 }}
+      {{- include "node-ipam-controller.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       {{- with .Values.podAnnotations }}
@@ -16,10 +16,10 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       labels:
-        {{- include "cluster-cidr-controller.selectorLabels" . | nindent 8 }}
+        {{- include "node-ipam-controller.selectorLabels" . | nindent 8 }}
     spec:
       hostNetwork: true
-      serviceAccountName: {{ include "cluster-cidr-controller.serviceAccountName" . }}
+      serviceAccountName: {{ include "node-ipam-controller.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:

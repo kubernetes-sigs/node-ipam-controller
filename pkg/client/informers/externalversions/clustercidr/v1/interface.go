@@ -3,7 +3,7 @@
 package v1
 
 import (
-	internalinterfaces "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions/internalinterfaces"
+	internalinterfaces "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to all the informers in this group version.

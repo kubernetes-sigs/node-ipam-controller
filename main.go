@@ -22,11 +22,11 @@ import (
 	"net/http"
 	"time"
 
-	clientset "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned"
-	informers "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions"
-	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam"
-	"github.com/mneverov/cluster-cidr-controller/pkg/signals"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
+	informers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
+	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam"
+	"sigs.k8s.io/node-ipam-controller/pkg/signals"
 
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -83,7 +83,7 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	cidrController, err := ipam.NewMultiCIDRRangeAllocator(ctx, kubeClient, cidrClient.NetworkingV1().ClusterCIDRs(),
+	nodeIpamController, err := ipam.NewMultiCIDRRangeAllocator(ctx, kubeClient, cidrClient.NetworkingV1().ClusterCIDRs(),
 		kubeInformerFactory.Core().V1().Nodes(),
 		sharedInformerFactory.Networking().V1().ClusterCIDRs(),
 		ipam.CIDRAllocatorParams{},
@@ -91,7 +91,7 @@ func main() {
 		nil,
 	)
 	if err != nil {
-		logger.Error(err, "failed to create CIDR controller")
+		logger.Error(err, "failed to create Node IPAM controller")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
@@ -99,7 +99,7 @@ func main() {
 	sharedInformerFactory.Start(ctx.Done())
 
 	server := startHealthProbeServer(healthProbeAddr, logger)
-	cidrController.Run(ctx)
+	nodeIpamController.Run(ctx)
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error(err, "failed to shut down health server")
 	}

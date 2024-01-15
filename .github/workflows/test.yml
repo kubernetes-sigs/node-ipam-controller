@@ -32,13 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          path: github.com/mneverov/cluster-cidr-controller
+          path: sigs.k8s.io/node-ipam-controller
 
       - name: Setup Go
         uses: actions/setup-go@v4
         with:
-          go-version-file: github.com/mneverov/cluster-cidr-controller/go.mod
+          go-version-file: sigs.k8s.io/node-ipam-controller/go.mod
 
       - name: Test
-        working-directory: github.com/mneverov/cluster-cidr-controller
+        working-directory: sigs.k8s.io/node-ipam-controller
         run: make test

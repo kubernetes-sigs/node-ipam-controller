@@ -1,4 +1,4 @@
-# cluster-cidr-controller
+# node-ipam-controller
 
 Out of tree implementation of https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/2593-multiple-cluster-cidrs
 

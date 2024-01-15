@@ -16,7 +16,7 @@ package validation
 import (
 	"fmt"
 
-	"github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
+	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 
 	corev1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
