@@ -19,10 +19,14 @@ package main
 import (
 	"errors"
 	"flag"
+	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/component-base/logs"
+	logsapi "k8s.io/component-base/logs/api/v1"
 	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
 	informers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam"
@@ -35,6 +39,7 @@ import (
 	// to ensure that exec-entrypoint and run can make use of them.
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	"k8s.io/client-go/tools/clientcmd"
+	_ "k8s.io/component-base/logs/json/register"
 	"k8s.io/klog/v2"
 )
 
@@ -49,9 +54,14 @@ func main() {
 	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
 
-	klog.InitFlags(nil)
+	c := logsapi.NewLoggingConfiguration()
+	logsapi.AddGoFlags(c, flag.CommandLine)
 	flag.Parse()
-
+	logs.InitLogs()
+	if err := logsapi.ValidateAndApply(c, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
 	ctx := signals.SetupSignalHandler()
 	logger := klog.FromContext(ctx)
 
