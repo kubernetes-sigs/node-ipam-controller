@@ -17,10 +17,10 @@ limitations under the License.
 package v1
 
 import (
-	"github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr"
 )
 
 // SchemeGroupVersion is group version used to register these objects

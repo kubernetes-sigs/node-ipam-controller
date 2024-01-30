@@ -3,8 +3,8 @@
 package clustercidr
 
 import (
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions/clustercidr/v1"
-	internalinterfaces "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions/internalinterfaces"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
+	internalinterfaces "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/internalinterfaces"
 )
 
 // Interface provides access to each of this group's versions.

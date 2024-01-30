@@ -5,8 +5,8 @@
 domain: networking.x-k8s.io
 layout:
 - go.kubebuilder.io/v4
-projectName: cluster-cidr-controller
-repo: github.com/mneverov/cluster-cidr-controller
+projectName: node-ipam-controller
+repo: sigs.k8s.io/node-ipam-controller
 resources:
 - api:
     crdVersion: v1
@@ -14,6 +14,6 @@ resources:
   controller: true
   domain: networking.x-k8s.io
   kind: ClusterCIDR
-  path: github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1
+  path: sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1
   version: v1
 version: "3"

@@ -20,8 +20,8 @@ import (
 	"container/heap"
 	"testing"
 
-	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
 	utilnet "k8s.io/utils/net"
+	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 )
 
 func TestPriorityQueue(t *testing.T) {

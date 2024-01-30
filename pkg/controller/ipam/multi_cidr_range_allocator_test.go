@@ -25,11 +25,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	v1 "github.com/mneverov/cluster-cidr-controller/pkg/apis/clustercidr/v1"
-	clustercidrfake "github.com/mneverov/cluster-cidr-controller/pkg/client/clientset/versioned/fake"
-	clustercidrinformer "github.com/mneverov/cluster-cidr-controller/pkg/client/informers/externalversions"
-	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/multicidrset"
-	"github.com/mneverov/cluster-cidr-controller/pkg/controller/ipam/test"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	clustercidrfake "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/fake"
+	clustercidrinformer "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
+	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
+	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/test"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -1627,12 +1627,12 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 
 var alwaysReady = func() bool { return true }
 
-type clusterCIDRController struct {
+type nodeIPAMController struct {
 	*multiCIDRRangeAllocator
 	clusterCIDRStore cache.Store
 }
 
-func newController(ctx context.Context) (*clustercidrfake.Clientset, *clusterCIDRController) {
+func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMController) {
 	client := clustercidrfake.NewSimpleClientset()
 	informerFactory := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc())
 	cccInformer := informerFactory.Networking().V1().ClusterCIDRs()
@@ -1682,7 +1682,7 @@ func newController(ctx context.Context) (*clustercidrfake.Clientset, *clusterCID
 
 	cccController.clusterCIDRSynced = alwaysReady
 
-	return client, &clusterCIDRController{
+	return client, &nodeIPAMController{
 		cccController,
 		informerFactory.Networking().V1().ClusterCIDRs().Informer().GetStore(),
 	}

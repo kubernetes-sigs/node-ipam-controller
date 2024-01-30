@@ -16,7 +16,7 @@ VERSION ?= $(shell git describe --tags --always --dirty)
 GOENV ?= GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 LDFLAGS ?= -X main.Version=$(VERSION)
 TAG ?= latest
-IMG ?= cluster-cidr-controller:${TAG}
+IMG ?= node-ipam-controller:${TAG}
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.27.x
 
@@ -59,8 +59,8 @@ CONTROLLER_GEN = go run sigs.k8s.io/controller-tools/cmd/controller-gen
 .PHONY: manifests
 manifests: ## Generate CustomResourceDefinition objects.
 	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." \
-		output:crd:artifacts:config=charts/cluster-cidr-controller/gen/crds \
-		output:rbac:dir=charts/cluster-cidr-controller/gen
+		output:crd:artifacts:config=charts/node-ipam-controller/gen/crds \
+		output:rbac:dir=charts/node-ipam-controller/gen
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.

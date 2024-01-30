@@ -1,4 +1,4 @@
-module github.com/mneverov/cluster-cidr-controller
+module sigs.k8s.io/node-ipam-controller
 
 go 1.21
 
