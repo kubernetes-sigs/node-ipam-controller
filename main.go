@@ -83,7 +83,10 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	nodeIpamController, err := ipam.NewMultiCIDRRangeAllocator(ctx, kubeClient, cidrClient.NetworkingV1().ClusterCIDRs(),
+	nodeIpamController, err := ipam.NewMultiCIDRRangeAllocator(
+		ctx,
+		kubeClient,
+		cidrClient.NetworkingV1().ClusterCIDRs(),
 		kubeInformerFactory.Core().V1().Nodes(),
 		sharedInformerFactory.Networking().V1().ClusterCIDRs(),
 		ipam.CIDRAllocatorParams{},
@@ -105,6 +108,8 @@ func main() {
 	}
 }
 
+// startHealthProbeServer starts a web server that has two endpoints `/readyz` and `/healthz` and always responds
+// 200 OK.
 func startHealthProbeServer(addr string, logger klog.Logger) *http.Server {
 	const defaultTimeout = 30 * time.Second
 	mux := http.NewServeMux()
@@ -129,7 +134,7 @@ func startHealthProbeServer(addr string, logger klog.Logger) *http.Server {
 	return server
 }
 
-// makeHealthHandler returns 200/OK when healthy
+// makeHealthHandler returns 200/OK when healthy.
 func makeHealthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer r.Body.Close()
