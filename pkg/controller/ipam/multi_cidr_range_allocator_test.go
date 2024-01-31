@@ -1866,30 +1866,6 @@ func makeNodeSelector(key string, op corev1.NodeSelectorOperator, values []strin
 	}
 }
 
-// makeClusterCIDR returns a mock ClusterCIDR object.
-func makeClusterCIDR(cccName, ipv4CIDR, ipv6CIDR string, perNodeHostBits int32, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
-	testCCC := &v1.ClusterCIDR{
-		ObjectMeta: metav1.ObjectMeta{Name: cccName},
-		Spec:       v1.ClusterCIDRSpec{},
-	}
-
-	testCCC.Spec.PerNodeHostBits = perNodeHostBits
-
-	if ipv4CIDR != "" {
-		testCCC.Spec.IPv4 = ipv4CIDR
-	}
-
-	if ipv6CIDR != "" {
-		testCCC.Spec.IPv6 = ipv6CIDR
-	}
-
-	if nodeSelector != nil {
-		testCCC.Spec.NodeSelector = nodeSelector
-	}
-
-	return testCCC
-}
-
 // Returns 0 for resyncPeriod in case resyncing is not needed.
 func NoResyncPeriodFunc() time.Duration {
 	return 0
