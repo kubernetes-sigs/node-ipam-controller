@@ -54,16 +54,25 @@ type ClusterCIDRSpec struct {
 	// +optional
 	NodeSelector *api.NodeSelector `json:"nodeSelector,omitempty"`
 
-	// perNodeHostBits defines the number of host bits to be configured per node.
+	// perNodeHostBits4 defines the number of host bits to be configured per node when IPv4 family is used.
 	// A subnet mask determines how much of the address is used for network bits
 	// and host bits. For example an IPv4 address of 192.168.0.0/24, splits the
 	// address into 24 bits for the network portion and 8 bits for the host portion.
-	// To allocate 256 IPs, set this field to 8 (a /24 mask for IPv4 or a /120 for IPv6).
+	// To allocate 256 IPs, set this field to 8 (a /24 mask).
 	// Minimum value is 4 (16 IPs).
-	// This field is required and immutable.
-	// +kubebuilder:validation:Required
-	// +required
-	PerNodeHostBits int32 `json:"perNodeHostBits"`
+	// This field is required when IPv4 family is used and immutable.
+	// +optional
+	PerNodeHostBits4 int32 `json:"perNodeHostBits4"`
+
+	// perNodeHostBits6 defines the number of host bits to be configured per node when IPv6 family is used.
+	// A subnet mask determines how much of the address is used for network bits
+	// and host bits. For example an IPv4 address of 192.168.0.0/24, splits the
+	// address into 24 bits for the network portion and 8 bits for the host portion.
+	// To allocate 256 IPs, set this field to 8 (a /120 mask).
+	// Minimum value is 4 (16 IPs).
+	// This field is required when IPv6 family is used and immutable.
+	// +optional
+	PerNodeHostBits6 int32 `json:"perNodeHostBits6"`
 
 	// ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
 	// At least one of ipv4 and ipv6 must be specified.

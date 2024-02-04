@@ -3,5 +3,5 @@ kind: ClusterCIDR
 metadata:
   name: clustercidr-test
 spec:
-  perNodeHostBits: 8
+  perNodeHostBits4: 8
   ipv4: 10.244.0.0/16

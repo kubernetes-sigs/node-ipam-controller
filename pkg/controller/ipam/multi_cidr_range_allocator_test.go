@@ -59,10 +59,11 @@ type testCaseMultiCIDR struct {
 }
 
 type testClusterCIDR struct {
-	perNodeHostBits int32
-	ipv4CIDR        string
-	ipv6CIDR        string
-	name            string
+	perNodeHostBits4 int32
+	perNodeHostBits6 int32
+	ipv4CIDR         string
+	ipv6CIDR         string
+	name             string
 }
 
 type testNodeSelectorRequirement struct {
@@ -103,12 +104,12 @@ func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string
 
 			if testClusterCIDR.ipv4CIDR != "" {
 				_, testCIDR, _ := utilnet.ParseCIDRSloppy(testClusterCIDR.ipv4CIDR)
-				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits))
+				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits4))
 				clusterCIDR.IPv4CIDRSet = testCIDRSet
 			}
 			if testClusterCIDR.ipv6CIDR != "" {
 				_, testCIDR, _ := utilnet.ParseCIDRSloppy(testClusterCIDR.ipv6CIDR)
-				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits))
+				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits6))
 				clusterCIDR.IPv6CIDRSet = testCIDRSet
 			}
 			clusterCIDRList = append(clusterCIDRList, clusterCIDR)
@@ -164,9 +165,9 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
+							name:             "single-stack-cidr",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
 						},
 					},
 				}),
@@ -203,10 +204,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -246,9 +247,9 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr-allocated",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
+							name:             "single-stack-cidr-allocated",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
 						},
 					},
 				}),
@@ -288,10 +289,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-allocated",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-allocated",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -332,9 +333,9 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr-allocate-fail",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
+							name:             "single-stack-cidr-allocate-fail",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
 						},
 					},
 				}),
@@ -375,10 +376,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-allocate-fail",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-allocate-fail",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -419,10 +420,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-bad-v4",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-bad-v4",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -463,10 +464,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-bad-v6",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-bad-v6",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -497,8 +498,6 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 		})
 	}
 }
-
-// todo(mneverov): copied from cidr_allocator
 
 // nodePollInterval is used in listing node
 // This is a variable instead of a const to enable testing.
@@ -543,9 +542,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/24",
+							name:             "single-stack-cidr",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/24",
 						},
 					},
 				}),
@@ -586,9 +585,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/24",
+							name:             "single-stack-cidr",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/24",
 						},
 					},
 				}),
@@ -629,9 +628,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "single-stack-cidr",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/24",
+							name:             "single-stack-cidr",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/24",
 						},
 					},
 				}),
@@ -676,10 +675,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/8",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 12,
+							ipv4CIDR:         "10.0.0.0/8",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -695,16 +695,17 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/8",
-							ipv6CIDR:        "abc:def:deca::/112",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 12,
+							ipv4CIDR:         "127.123.234.0/8",
+							ipv6CIDR:         "abc:def:deca::/112",
 						},
 					},
 				}),
 			expectedAllocatedCIDR: map[int]string{
 				0: "127.0.0.0/24",
-				1: "abc:def:deca::/120",
+				1: "abc:def:deca::/116",
 			},
 		},
 		{
@@ -741,10 +742,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/8",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 12,
+							ipv4CIDR:         "10.0.0.0/8",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -760,20 +762,21 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 12,
+							ipv4CIDR:         "10.0.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
 			allocatedCIDRs: map[int][]string{
 				0: {"10.0.0.0/24", "10.0.1.0/24", "10.0.2.0/24", "10.0.4.0/24"},
-				1: {"ace:cab:deca::/120"},
+				1: {"ace:cab:deca::/116"},
 			},
 			expectedAllocatedCIDR: map[int]string{
 				0: "10.0.3.0/24",
-				1: "ace:cab:deca::100/120",
+				1: "ace:cab:deca::1000/116",
 			},
 		},
 		{
@@ -815,10 +818,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/8",
-							ipv6CIDR:        "abc:def:deca::/112",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "127.123.234.0/8",
+							ipv6CIDR:         "abc:def:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -834,10 +838,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/24",
-							ipv6CIDR:        "ace:cab:deca::/120",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "10.0.0.0/24",
+							ipv6CIDR:         "ace:cab:deca::/120",
 						},
 					},
 				}),
@@ -885,9 +890,10 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/23",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "127.123.234.0/23",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -903,10 +909,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/120",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "10.0.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/120",
 						},
 					},
 				}),
@@ -954,10 +961,10 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/24",
-							ipv6CIDR:        "abc:def:deca::/120",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "127.123.234.0/24",
+							ipv6CIDR:         "abc:def:deca::/120",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -973,10 +980,10 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 0,
-							ipv4CIDR:        "10.0.0.0/32",
-							ipv6CIDR:        "ace:cab:deca::/128",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 0,
+							ipv4CIDR:         "10.0.0.0/32",
+							ipv6CIDR:         "ace:cab:deca::/128",
 						},
 					},
 				}),
@@ -1024,10 +1031,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/16",
-							ipv6CIDR:        "abc:def:deca::/112",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "127.123.234.0/16",
+							ipv6CIDR:         "abc:def:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -1043,10 +1051,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "10.0.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -1094,10 +1103,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-1",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/16",
-							ipv6CIDR:        "abc:def:deca::/112",
+							name:             "dual-stack-cidr-1",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "127.123.234.0/16",
+							ipv6CIDR:         "abc:def:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -1113,10 +1123,11 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "dual-stack-cidr-2",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.0.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							name:             "dual-stack-cidr-2",
+							perNodeHostBits4: 8,
+							perNodeHostBits6: 8,
+							ipv4CIDR:         "10.0.0.0/16",
+							ipv6CIDR:         "ace:cab:deca::/112",
 						},
 					},
 				}),
@@ -1176,9 +1187,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "no-double-counting",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/22",
+							name:             "no-double-counting",
+							perNodeHostBits4: 8,
+							ipv4CIDR:         "10.10.0.0/22",
 						},
 					},
 				}),
@@ -1210,8 +1221,6 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 			return
 		}
 		rangeAllocator.nodesSynced = test.AlwaysReady
-		// todo(mneverov)
-		// rangeAllocator.recorder = test.NewFakeRecorder()
 		rangeAllocator.recorder = &record.FakeRecorder{}
 
 		// this is a bit of white box testing
@@ -1312,9 +1321,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "allocate-fail",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/28",
+							name:             "allocate-fail",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/28",
 						},
 					},
 				}),
@@ -1450,9 +1459,9 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "cidr-release",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/28",
+							name:             "cidr-release",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/28",
 						},
 					},
 				}),
@@ -1496,9 +1505,9 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 						},
 					}): {
 						{
-							name:            "cidr-release",
-							perNodeHostBits: 2,
-							ipv4CIDR:        "127.123.234.0/28",
+							name:             "cidr-release",
+							perNodeHostBits4: 2,
+							ipv4CIDR:         "127.123.234.0/28",
 						},
 					},
 				}),
@@ -1691,6 +1700,8 @@ func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMCo
 // Ensure default ClusterCIDR is created during bootstrap.
 func TestClusterCIDRDefault(t *testing.T) {
 	defaultCCC := makeClusterCIDR(defaultClusterCIDRName, "192.168.0.0/16", "", 8, nil)
+	// By default PerNodeHostBits (for both IPv4 and IPv6) equals to 4 (minPerHostBits).
+	defaultCCC.Spec.PerNodeHostBits6 = 4
 	_, ctx := ktesting.NewTestContext(t)
 	client, _ := newController(ctx)
 	createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), defaultClusterCIDRName, metav1.GetOptions{})
@@ -1737,17 +1748,17 @@ func TestSyncClusterCIDRCreate(t *testing.T) {
 		},
 		{
 			name:    "valid Dualstack ClusterCIDR with no NodeSelector",
-			ccc:     makeClusterCIDR("dual-ccc", "10.2.0.0/16", "fd00:1::/112", 8, nil),
+			ccc:     makeClusterCIDRWithBits("dual-ccc", "10.2.0.0/16", "fd00:1::/112", 8, 12, nil),
 			wantErr: false,
 		},
 		{
 			name:    "valid DualStack ClusterCIDR with NodeSelector",
-			ccc:     makeClusterCIDR("dual-ccc-label", "10.3.0.0/16", "fd00:2::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     makeClusterCIDRWithBits("dual-ccc-label", "10.3.0.0/16", "fd00:2::/112", 8, 12, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid Dualstack ClusterCIDR with overlapping CIDRs",
-			ccc:     makeClusterCIDR("dual-ccc-overlap", "10.2.0.0/16", "fd00:1:1::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     makeClusterCIDRWithBits("dual-ccc-overlap", "10.2.0.0/16", "fd00:1:1::/112", 8, 12, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		// invalid ClusterCIDRs.

@@ -38,16 +38,21 @@ func makeNodeSelector(key string, op corev1.NodeSelectorOperator, values []strin
 }
 
 func makeClusterCIDR(perNodeHostBits int32, ipv4, ipv6 string, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
+	return makeClusterCIDRWithBits(perNodeHostBits, perNodeHostBits, ipv4, ipv6, nodeSelector)
+}
+
+func makeClusterCIDRWithBits(perNodeHostBits4, perNodeHostBits6 int32, ipv4, ipv6 string, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
 	return &v1.ClusterCIDR{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            "foo",
 			ResourceVersion: "9",
 		},
 		Spec: v1.ClusterCIDRSpec{
-			PerNodeHostBits: perNodeHostBits,
-			IPv4:            ipv4,
-			IPv6:            ipv6,
-			NodeSelector:    nodeSelector,
+			PerNodeHostBits4: perNodeHostBits4,
+			PerNodeHostBits6: perNodeHostBits6,
+			IPv4:             ipv4,
+			IPv6:             ipv6,
+			NodeSelector:     nodeSelector,
 		},
 	}
 }
@@ -199,8 +204,12 @@ func TestValidateClusterConfigUpdate(t *testing.T) {
 		cc:        makeClusterCIDR(8, "10.1.0.0/16", "fd00:1:1::/64", makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 		expectErr: false,
 	}, {
-		name:      "Failed update, update spec.PerNodeHostBits",
+		name:      "Failed update, update spec.PerNodeHostBits4",
 		cc:        makeClusterCIDR(12, "10.1.0.0/16", "fd00:1:1::/64", makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+		expectErr: true,
+	}, {
+		name:      "Failed update, update spec.PerNodeHostBits6",
+		cc:        makeClusterCIDRWithBits(8, 12, "10.1.0.0/16", "fd00:1:1::/64", makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 		expectErr: true,
 	}, {
 		name:      "Failed update, update spec.IPv4",
