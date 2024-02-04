@@ -1028,7 +1028,8 @@ func createDefaultClusterCIDR(logger klog.Logger, existingConfigList *v1.Cluster
 			Name: defaultClusterCIDRName,
 		},
 		Spec: v1.ClusterCIDRSpec{
-			PerNodeHostBits: minPerNodeHostBits,
+			PerNodeHostBits4: minPerNodeHostBits,
+			PerNodeHostBits6: minPerNodeHostBits,
 		},
 	}
 
@@ -1044,29 +1045,20 @@ func createDefaultClusterCIDR(logger klog.Logger, existingConfigList *v1.Cluster
 			defaultCIDRConfig.Spec.IPv4 = cidr.String()
 			ipv4PerNodeHostBits = ipv4MaxCIDRMask - int32(allocatorParams.NodeCIDRMaskSizes[i])
 			if !isDualstack && ipv4PerNodeHostBits > minPerNodeHostBits {
-				defaultCIDRConfig.Spec.PerNodeHostBits = ipv4PerNodeHostBits
+				defaultCIDRConfig.Spec.PerNodeHostBits4 = ipv4PerNodeHostBits
 			}
 		} else if netutil.IsIPv6CIDR(cidr) {
 			defaultCIDRConfig.Spec.IPv6 = cidr.String()
 			ipv6PerNodeHostBits = ipv6MaxCIDRMask - int32(allocatorParams.NodeCIDRMaskSizes[i])
 			if !isDualstack && ipv6PerNodeHostBits > minPerNodeHostBits {
-				defaultCIDRConfig.Spec.PerNodeHostBits = ipv6PerNodeHostBits
+				defaultCIDRConfig.Spec.PerNodeHostBits6 = ipv6PerNodeHostBits
 			}
 		}
 	}
 
 	if isDualstack {
-		// In case of dualstack CIDRs, currently the default values for PerNodeMaskSize are
-		// 24 for IPv4 (PerNodeHostBits=8) and 64 for IPv6(PerNodeHostBits=64), there is no
-		// requirement for the PerNodeHostBits to be equal for IPv4 and IPv6, However with
-		// the introduction of ClusterCIDRs, we enforce the requirement for a single
-		// PerNodeHostBits field, thus we choose the minimum PerNodeHostBits value, to avoid
-		// overflow for IPv4 CIDRs.
-		if ipv4PerNodeHostBits >= minPerNodeHostBits && ipv4PerNodeHostBits <= ipv6PerNodeHostBits {
-			defaultCIDRConfig.Spec.PerNodeHostBits = ipv4PerNodeHostBits
-		} else if ipv6PerNodeHostBits >= minPerNodeHostBits && ipv6PerNodeHostBits <= ipv4MaxCIDRMask {
-			defaultCIDRConfig.Spec.PerNodeHostBits = ipv6PerNodeHostBits
-		}
+		defaultCIDRConfig.Spec.PerNodeHostBits4 = ipv4PerNodeHostBits
+		defaultCIDRConfig.Spec.PerNodeHostBits6 = ipv6PerNodeHostBits
 	}
 
 	existingConfigList.Items = append(existingConfigList.Items, *defaultCIDRConfig)
@@ -1169,7 +1161,7 @@ func (r *multiCIDRRangeAllocator) createClusterCIDRSet(clusterCIDR *v1.ClusterCI
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse provided IPv4 CIDR: %w", err)
 		}
-		clusterCIDRSet.IPv4CIDRSet, err = cidrset.NewMultiCIDRSet(ipv4CIDR, int(clusterCIDR.Spec.PerNodeHostBits))
+		clusterCIDRSet.IPv4CIDRSet, err = cidrset.NewMultiCIDRSet(ipv4CIDR, int(clusterCIDR.Spec.PerNodeHostBits4))
 		if err != nil {
 			return nil, fmt.Errorf("unable to create IPv4 cidrSet: %w", err)
 		}
@@ -1180,7 +1172,7 @@ func (r *multiCIDRRangeAllocator) createClusterCIDRSet(clusterCIDR *v1.ClusterCI
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse provided IPv6 CIDR: %w", err)
 		}
-		clusterCIDRSet.IPv6CIDRSet, err = cidrset.NewMultiCIDRSet(ipv6CIDR, int(clusterCIDR.Spec.PerNodeHostBits))
+		clusterCIDRSet.IPv6CIDRSet, err = cidrset.NewMultiCIDRSet(ipv6CIDR, int(clusterCIDR.Spec.PerNodeHostBits6))
 		if err != nil {
 			return nil, fmt.Errorf("unable to create IPv6 cidrSet: %w", err)
 		}

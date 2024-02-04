@@ -75,15 +75,21 @@ var _ = ginkgo.AfterSuite(func() {
 
 // makeClusterCIDR returns a ClusterCIDR object.
 func makeClusterCIDR(name, ipv4CIDR, ipv6CIDR string, perNodeHostBits int32, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
+	return makeClusterCIDRWithBits(name, ipv4CIDR, ipv6CIDR, perNodeHostBits, perNodeHostBits, nodeSelector)
+}
+
+// makeClusterCIDRWithBits returns a ClusterCIDR object.
+func makeClusterCIDRWithBits(name, ipv4CIDR, ipv6CIDR string, perNodeHostBits4, perNodeHostBits6 int32, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
 	return &v1.ClusterCIDR{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
 		},
 		Spec: v1.ClusterCIDRSpec{
-			PerNodeHostBits: perNodeHostBits,
-			IPv4:            ipv4CIDR,
-			IPv6:            ipv6CIDR,
-			NodeSelector:    nodeSelector,
+			PerNodeHostBits4: perNodeHostBits4,
+			PerNodeHostBits6: perNodeHostBits6,
+			IPv4:             ipv4CIDR,
+			IPv6:             ipv6CIDR,
+			NodeSelector:     nodeSelector,
 		},
 	}
 }

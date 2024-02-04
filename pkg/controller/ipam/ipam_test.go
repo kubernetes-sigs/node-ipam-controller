@@ -283,7 +283,7 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true", "match": "single"}),
 			[]string{"172.16.0.0/24", "fd34:30:100::/120"},
 		),
-		ginkgo.Entry("ClusterCIDR with lower perNodeHostBits",
+		ginkgo.Entry("ClusterCIDR with lower perNodeHostBits4",
 			[]*v1.ClusterCIDR{
 				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
 				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),

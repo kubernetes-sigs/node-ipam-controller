@@ -3,5 +3,5 @@ kind: ClusterCIDR
 metadata:
   name: clustercidr-test
 spec:
-  perNodeHostBits: 8
+  perNodeHostBits6: 8
   ipv6: 2001:db8::/110

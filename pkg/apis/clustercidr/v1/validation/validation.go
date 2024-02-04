@@ -57,14 +57,14 @@ func ValidateClusterCIDRSpec(spec *v1.ClusterCIDRSpec, fldPath *field.Path) fiel
 		return allErrs
 	}
 
-	// Validate specified IPv4 CIDR and PerNodeHostBits.
+	// Validate specified IPv4 CIDR and PerNodeHostBits4.
 	if spec.IPv4 != "" {
-		allErrs = append(allErrs, validateCIDRConfig(spec.IPv4, spec.PerNodeHostBits, 32, corev1.IPv4Protocol, fldPath)...)
+		allErrs = append(allErrs, validateCIDRConfig(spec.IPv4, spec.PerNodeHostBits4, 32, corev1.IPv4Protocol, fldPath)...)
 	}
 
-	// Validate specified IPv6 CIDR and PerNodeHostBits.
+	// Validate specified IPv6 CIDR and PerNodeHostBits6.
 	if spec.IPv6 != "" {
-		allErrs = append(allErrs, validateCIDRConfig(spec.IPv6, spec.PerNodeHostBits, 128, corev1.IPv6Protocol, fldPath)...)
+		allErrs = append(allErrs, validateCIDRConfig(spec.IPv6, spec.PerNodeHostBits6, 128, corev1.IPv6Protocol, fldPath)...)
 	}
 
 	return allErrs
@@ -91,11 +91,18 @@ func validateCIDRConfig(configCIDR string, perNodeHostBits, maxMaskSize int32, i
 	maskSize, _ := ipNet.Mask.Size()
 	maxPerNodeHostBits := maxMaskSize - int32(maskSize)
 
+	var perNodeHostBitsFieldName string
+	if ipFamily == corev1.IPv4Protocol {
+		perNodeHostBitsFieldName = "perNodeHostBits4"
+	} else {
+		perNodeHostBitsFieldName = "perNodeHostBits6"
+	}
+
 	if perNodeHostBits < minPerNodeHostBits {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("perNodeHostBits"), perNodeHostBits, fmt.Sprintf("must be greater than or equal to %d", minPerNodeHostBits)))
+		allErrs = append(allErrs, field.Invalid(fldPath.Child(perNodeHostBitsFieldName), perNodeHostBits, fmt.Sprintf("must be greater than or equal to %d", minPerNodeHostBits)))
 	}
 	if perNodeHostBits > maxPerNodeHostBits {
-		allErrs = append(allErrs, field.Invalid(fldPath.Child("perNodeHostBits"), perNodeHostBits, fmt.Sprintf("must be less than or equal to %d", maxPerNodeHostBits)))
+		allErrs = append(allErrs, field.Invalid(fldPath.Child(perNodeHostBitsFieldName), perNodeHostBits, fmt.Sprintf("must be less than or equal to %d", maxPerNodeHostBits)))
 	}
 	return allErrs
 }
@@ -112,7 +119,8 @@ func validateClusterCIDRUpdateSpec(update, old *v1.ClusterCIDRSpec, fldPath *fie
 	var allErrs field.ErrorList
 
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.NodeSelector, old.NodeSelector, fldPath.Child("nodeSelector"))...)
-	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.PerNodeHostBits, old.PerNodeHostBits, fldPath.Child("perNodeHostBits"))...)
+	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.PerNodeHostBits4, old.PerNodeHostBits4, fldPath.Child("perNodeHostBits4"))...)
+	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.PerNodeHostBits6, old.PerNodeHostBits6, fldPath.Child("perNodeHostBits6"))...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.IPv4, old.IPv4, fldPath.Child("ipv4"))...)
 	allErrs = append(allErrs, apimachineryvalidation.ValidateImmutableField(update.IPv6, old.IPv6, fldPath.Child("ipv6"))...)
 
