@@ -103,7 +103,7 @@ jobs:
         # install CRD separately
         /usr/local/bin/kubectl create -f charts/node-ipam-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
         # create ClusterCIDR
-        /usr/local/bin/kubectl create -f samples/clustercidr-${IP_FAMILY}.yaml
+        /usr/local/bin/kubectl create -f examples/clustercidr-${IP_FAMILY}.yaml
         # configure controller version and disable installing CRD
         sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/node-ipam-controller/values.yaml
         sed -i 's/installCRDs: true/installCRDs: false/' charts/node-ipam-controller/values.yaml
