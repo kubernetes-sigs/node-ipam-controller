@@ -43,9 +43,6 @@ type ClusterCIDR struct {
 	Spec ClusterCIDRSpec `json:"spec,omitempty"`
 }
 
-// Default implements webhook.Defaulter so a webhook will be registered for the type.
-func (in *ClusterCIDR) Default() {}
-
 // ClusterCIDRSpec defines the desired state of ClusterCIDR.
 type ClusterCIDRSpec struct {
 	// nodeSelector defines which nodes the config is applicable to.

@@ -13,8 +13,6 @@ import (
 	"github.com/onsi/gomega"
 	"github.com/onsi/gomega/format"
 	"go.uber.org/zap/zapcore"
-	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -72,18 +70,3 @@ var _ = ginkgo.AfterSuite(func() {
 	err := testEnv.Stop()
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 })
-
-// makeClusterCIDR returns a ClusterCIDR object.
-func makeClusterCIDR(name, ipv4CIDR, ipv6CIDR string, perNodeHostBits int32, nodeSelector *corev1.NodeSelector) *v1.ClusterCIDR {
-	return &v1.ClusterCIDR{
-		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
-		},
-		Spec: v1.ClusterCIDRSpec{
-			PerNodeHostBits: perNodeHostBits,
-			IPv4:            ipv4CIDR,
-			IPv6:            ipv6CIDR,
-			NodeSelector:    nodeSelector,
-		},
-	}
-}
