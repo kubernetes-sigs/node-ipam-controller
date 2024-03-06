@@ -57,10 +57,11 @@ help: ## Display this help.
 CONTROLLER_GEN = go run sigs.k8s.io/controller-tools/cmd/controller-gen
 
 .PHONY: manifests
-manifests: ## Generate CustomResourceDefinition objects.
-	$(CONTROLLER_GEN) rbac:roleName=manager-role crd paths="./..." \
+manifests: ## Generate CustomResourceDefinition objects, webhooks and rbac.
+	$(CONTROLLER_GEN) rbac:roleName=manager-role crd webhook paths="./..." \
 		output:crd:artifacts:config=charts/node-ipam-controller/gen/crds \
-		output:rbac:dir=charts/node-ipam-controller/gen
+		output:rbac:dir=charts/node-ipam-controller/gen \
+		output:dir=charts/node-ipam-controller/gen/webhooks
 
 .PHONY: generate
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
