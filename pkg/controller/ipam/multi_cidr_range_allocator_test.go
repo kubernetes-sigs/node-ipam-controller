@@ -30,6 +30,7 @@ import (
 	clustercidrinformer "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/test"
+	testutil "sigs.k8s.io/node-ipam-controller/pkg/util/test"
 
 	"github.com/stretchr/testify/assert"
 	corev1 "k8s.io/api/core/v1"
@@ -1690,7 +1691,7 @@ func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMCo
 
 // Ensure default ClusterCIDR is created during bootstrap.
 func TestClusterCIDRDefault(t *testing.T) {
-	defaultCCC := makeClusterCIDR(defaultClusterCIDRName, "192.168.0.0/16", "", 8, nil)
+	defaultCCC := testutil.MakeClusterCIDR(8, defaultClusterCIDRName, "192.168.0.0/16", "", nil)
 	_, ctx := ktesting.NewTestContext(t)
 	client, _ := newController(ctx)
 	createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), defaultClusterCIDRName, metav1.GetOptions{})
@@ -1707,68 +1708,68 @@ func TestSyncClusterCIDRCreate(t *testing.T) {
 	}{
 		{
 			name:    "valid IPv4 ClusterCIDR with no NodeSelector",
-			ccc:     makeClusterCIDR("ipv4-ccc", "10.2.0.0/16", "", 8, nil),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv4-ccc", "10.2.0.0/16", "", nil),
 			wantErr: false,
 		},
 		{
 			name:    "valid IPv4 ClusterCIDR with NodeSelector",
-			ccc:     makeClusterCIDR("ipv4-ccc-label", "10.3.0.0/16", "", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv4-ccc-label", "10.3.0.0/16", "", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid IPv4 ClusterCIDR with overlapping CIDRs",
-			ccc:     makeClusterCIDR("ipv4-ccc-overlap", "10.2.0.0/24", "", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv4-ccc-overlap", "10.2.0.0/24", "", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid IPv6 ClusterCIDR with no NodeSelector",
-			ccc:     makeClusterCIDR("ipv6-ccc", "", "fd00:1::/112", 8, nil),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv6-ccc", "", "fd00:1::/112", nil),
 			wantErr: false,
 		},
 		{
 			name:    "valid IPv6 ClusterCIDR with NodeSelector",
-			ccc:     makeClusterCIDR("ipv6-ccc-label", "", "fd00:2::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv6-ccc-label", "", "fd00:2::/112", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid IPv6 ClusterCIDR with overlapping CIDRs",
-			ccc:     makeClusterCIDR("ipv6-ccc-overlap", "", "fd00:1:1::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "ipv6-ccc-overlap", "", "fd00:1:1::/112", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid Dualstack ClusterCIDR with no NodeSelector",
-			ccc:     makeClusterCIDR("dual-ccc", "10.2.0.0/16", "fd00:1::/112", 8, nil),
+			ccc:     testutil.MakeClusterCIDR(8, "dual-ccc", "10.2.0.0/16", "fd00:1::/112", nil),
 			wantErr: false,
 		},
 		{
 			name:    "valid DualStack ClusterCIDR with NodeSelector",
-			ccc:     makeClusterCIDR("dual-ccc-label", "10.3.0.0/16", "fd00:2::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "dual-ccc-label", "10.3.0.0/16", "fd00:2::/112", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		{
 			name:    "valid Dualstack ClusterCIDR with overlapping CIDRs",
-			ccc:     makeClusterCIDR("dual-ccc-overlap", "10.2.0.0/16", "fd00:1:1::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "dual-ccc-overlap", "10.2.0.0/16", "fd00:1:1::/112", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: false,
 		},
 		// invalid ClusterCIDRs.
 		{
 			name:    "invalid ClusterCIDR with both IPv4 and IPv6 CIDRs nil",
-			ccc:     makeClusterCIDR("invalid-ccc", "", "", 0, nil),
+			ccc:     testutil.MakeClusterCIDR(0, "invalid-ccc", "", "", nil),
 			wantErr: true,
 		},
 		{
 			name:    "invalid IPv4 ClusterCIDR",
-			ccc:     makeClusterCIDR("invalid-ipv4-ccc", "1000.2.0.0/16", "", 8, nil),
+			ccc:     testutil.MakeClusterCIDR(8, "invalid-ipv4-ccc", "1000.2.0.0/16", "", nil),
 			wantErr: true,
 		},
 		{
 			name:    "invalid IPv6 ClusterCIDR",
-			ccc:     makeClusterCIDR("invalid-ipv6-ccc", "", "aaaaa:1:1::/112", 8, nil),
+			ccc:     testutil.MakeClusterCIDR(8, "invalid-ipv6-ccc", "", "aaaaa:1:1::/112", nil),
 			wantErr: true,
 		},
 		{
 			name:    "invalid dualstack ClusterCIDR",
-			ccc:     makeClusterCIDR("invalid-dual-ccc", "10.2.0.0/16", "aaaaa:1:1::/112", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
+			ccc:     testutil.MakeClusterCIDR(8, "invalid-dual-ccc", "10.2.0.0/16", "aaaaa:1:1::/112", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"})),
 			wantErr: true,
 		},
 	}
@@ -1796,7 +1797,7 @@ func TestSyncClusterCIDRDelete(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	_, cccController := newController(ctx)
 
-	testCCC := makeClusterCIDR("testing-1", "10.1.0.0/16", "", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"}))
+	testCCC := testutil.MakeClusterCIDR(8, "testing-1", "10.1.0.0/16", "", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"}))
 
 	cccController.clusterCIDRStore.Add(testCCC)
 	err := cccController.syncClusterCIDR(ctx, testCCC.Name)
@@ -1815,7 +1816,7 @@ func TestSyncClusterCIDRDeleteWithNodesAssociated(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)
 
-	testCCC := makeClusterCIDR("testing-1", "10.1.0.0/16", "", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"}))
+	testCCC := testutil.MakeClusterCIDR(8, "testing-1", "10.1.0.0/16", "", testutil.MakeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"}))
 
 	cccController.clusterCIDRStore.Add(testCCC)
 	err := cccController.syncClusterCIDR(ctx, testCCC.Name)
@@ -1847,22 +1848,6 @@ func expectActions(t *testing.T, actions []k8stesting.Action, num int, verb, res
 		relativePos := len(actions) - i - 1
 		assert.Equal(t, verb, actions[relativePos].GetVerb(), "Expected action -%d verb to be %s", i, verb)
 		assert.Equal(t, resource, actions[relativePos].GetResource().Resource, "Expected action -%d resource to be %s", i, resource)
-	}
-}
-
-func makeNodeSelector(key string, op corev1.NodeSelectorOperator, values []string) *corev1.NodeSelector {
-	return &corev1.NodeSelector{
-		NodeSelectorTerms: []corev1.NodeSelectorTerm{
-			{
-				MatchExpressions: []corev1.NodeSelectorRequirement{
-					{
-						Key:      key,
-						Operator: op,
-						Values:   values,
-					},
-				},
-			},
-		},
 	}
 }
 
