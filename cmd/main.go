@@ -27,6 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/logs"
 	logsapi "k8s.io/component-base/logs/api/v1"
+	options "sigs.k8s.io/node-ipam-controller/cmd/app/options"
 	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
 	informers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam"
@@ -44,15 +45,11 @@ import (
 )
 
 func main() {
-	var (
-		apiServerURL    string
-		kubeconfig      string
-		healthProbeAddr string
-	)
+	opts := options.NewOptions()
 
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
+	flag.StringVar(&opts.Kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&opts.ApiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&opts.HealthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
 
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
@@ -65,7 +62,7 @@ func main() {
 	ctx := signals.SetupSignalHandler()
 	logger := klog.FromContext(ctx)
 
-	cfg, err := clientcmd.BuildConfigFromFlags(apiServerURL, kubeconfig)
+	cfg, err := clientcmd.BuildConfigFromFlags(opts.ApiServerURL, opts.Kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
@@ -111,7 +108,7 @@ func main() {
 	kubeInformerFactory.Start(ctx.Done())
 	sharedInformerFactory.Start(ctx.Done())
 
-	server := startHealthProbeServer(healthProbeAddr, logger)
+	server := startHealthProbeServer(opts.HealthProbeAddr, logger)
 	nodeIpamController.Run(ctx)
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error(err, "failed to shut down health server")

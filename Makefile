@@ -86,7 +86,7 @@ test: manifests generate fmt ## Run tests.
 
 .PHONY: build
 build: manifests generate fmt ## Build the binary.
-	${GOENV} go build -o bin/manager -ldflags "$(LDFLAGS)"
+	${GOENV} go build -o bin/manager cmd/main.go -ldflags "$(LDFLAGS)"
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
