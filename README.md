@@ -16,7 +16,7 @@ make build
 To build the Docker image for node-ipam-controller:
 
 ```sh
-make docker-build
+make image-build
 ```
 
 ## Run
@@ -44,9 +44,9 @@ Run the controller outside the cluster by specifying Kind cluster kubeconfig:
 To run the controller inside the cluster, a Docker image must first be loaded into a registry accessible within the Kind cluster.
 
 ```sh
-docker build -t ghcr.io/sigs.k8s.io/node-ipam-controller:local -f Dockerfile .
-docker save --output node-ipam-controller.tar ghcr.io/sigs.k8s.io/node-ipam-controller:local
-kind load docker-image ghcr.io/sigs.k8s.io/node-ipam-controller:local
+docker build -t registry.k8s.io/node-ipam-controller/node-ipam-controller:local -f Dockerfile .
+docker save --output node-ipam-controller.tar registry.k8s.io/node-ipam-controller/node-ipam-controller:local
+kind load docker-image registry.k8s.io/node-ipam-controller/node-ipam-controller:local
 ```
 
 Check Kind [documentation](https://kind.sigs.k8s.io/docs/user/local-registry/) on how to use local container image registry.

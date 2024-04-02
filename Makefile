@@ -12,19 +12,40 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-VERSION ?= $(shell git describe --tags --always --dirty)
+GIT_TAG ?= $(shell git describe --tags --always --dirty)
 GOENV ?= GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64
-LDFLAGS ?= -X main.Version=$(VERSION)
-TAG ?= latest
-IMG ?= node-ipam-controller:${TAG}
+LDFLAGS ?= -X main.Version=$(GIT_TAG)
+IMAGE_REGISTRY ?= gcr.io/k8s-staging-node-ipam-controller
+IMAGE_NAME := node-ipam-controller
+IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
+IMG ?= $(IMAGE_REPO):$(GIT_TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
 ENVTEST_K8S_VERSION = 1.27.x
+
+# Use go.mod go version as a single source of truth of GO version.
+GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
+
+# Use distroless as minimal base image to package the manager binary
+# Refer to https://github.com/GoogleContainerTools/distroless for more details
+BASE_IMAGE ?= gcr.io/distroless/static:nonroot
+BUILDER_IMAGE ?= golang:$(GO_VERSION)
+CGO_ENABLED ?= 0
+
+IMAGE_BUILD_EXTRA_OPTS ?=
 
 # Get the currently used golang install path (in GOPATH/bin, unless GOBIN is set)
 ifeq (,$(shell go env GOBIN))
 GOBIN=$(shell go env GOPATH)/bin
 else
 GOBIN=$(shell go env GOBIN)
+endif
+
+
+ifdef EXTRA_TAG
+IMAGE_EXTRA_TAG ?= $(IMAGE_REPO):$(EXTRA_TAG)
+endif
+ifdef IMAGE_EXTRA_TAG
+IMAGE_BUILD_EXTRA_OPTS += -t $(IMAGE_EXTRA_TAG)
 endif
 
 # Setting SHELL to bash allows bash commands to be executed by recipes.
@@ -94,16 +115,24 @@ build: manifests generate fmt ## Build the binary.
 # tools. (i.e. podman)
 CONTAINER_TOOL ?= docker
 
+DOCKER_BUILDX_CMD ?= docker buildx
+IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
+
 # If you wish to build the manager image targeting other platforms you can use the --platform flag.
 # (i.e. docker build --platform linux/arm64). However, you must enable docker buildKit for it.
 # More info: https://docs.docker.com/develop/develop-images/build_enhancements/
-.PHONY: docker-build
-docker-build: ## Build docker image with the manager.
-	$(CONTAINER_TOOL) build -t ${IMG} .
+.PHONY: image-build
+image-build:
+	$(IMAGE_BUILD_CMD) -t $(IMG) \
+		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
+		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
+		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
+		$(PUSH) \
+		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
-.PHONY: docker-push
-docker-push: ## Push docker image with the manager.
-	$(CONTAINER_TOOL) push ${IMG}
+.PHONY: image-push
+image-push: PUSH=--push
+image-push: image-build
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple
 # architectures. (i.e. make docker-buildx IMG=myregistry/myoperator:0.0.1). To use this option you need to:
