@@ -17,6 +17,7 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
@@ -30,10 +31,12 @@ import (
 	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
 	informers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam"
+	"sigs.k8s.io/node-ipam-controller/pkg/leaderelection"
 	"sigs.k8s.io/node-ipam-controller/pkg/signals"
 
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -45,14 +48,16 @@ import (
 
 func main() {
 	var (
-		apiServerURL    string
-		kubeconfig      string
-		healthProbeAddr string
+		apiServerURL         string
+		kubeconfig           string
+		healthProbeAddr      string
+		enableLeaderElection bool
 	)
 
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
+	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false, "Enable leader election for the controller manager. Ensures there is only one active controller manager.")
 
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
@@ -65,6 +70,7 @@ func main() {
 	ctx := signals.SetupSignalHandler()
 	logger := klog.FromContext(ctx)
 
+	server := startHealthProbeServer(healthProbeAddr, logger)
 	cfg, err := clientcmd.BuildConfigFromFlags(apiServerURL, kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
@@ -77,9 +83,25 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
+	if enableLeaderElection {
+		logger.Info("Leader election is enabled.")
+		leaderelection.StartLeaderElection(ctx, kubeClient, func(ctx context.Context) {
+			runControllers(ctx, kubeClient, cfg, logger)
+		})
+	} else {
+		logger.Info("Leader election is disabled.")
+		runControllers(ctx, kubeClient, cfg, logger)
+	}
+
+	if err := server.Shutdown(ctx); err != nil {
+		logger.Error(err, "failed to shut down health server")
+	}
+}
+
+func runControllers(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger) {
 	cidrClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		logger.Error(err, "failed to build kubernetes clientset")
+		logger.Error(err, "failed to build cidr clientset")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
@@ -111,11 +133,7 @@ func main() {
 	kubeInformerFactory.Start(ctx.Done())
 	sharedInformerFactory.Start(ctx.Done())
 
-	server := startHealthProbeServer(healthProbeAddr, logger)
 	nodeIpamController.Run(ctx)
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error(err, "failed to shut down health server")
-	}
 }
 
 // startHealthProbeServer starts a web server that has two endpoints `/readyz` and `/healthz` and always responds

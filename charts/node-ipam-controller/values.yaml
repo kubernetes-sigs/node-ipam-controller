@@ -1,4 +1,9 @@
+# Specifies the replica count for Deployment
+# Set leaderElection if you want to use more than 1 replica
 replicaCount: 1
+
+leaderElection:
+  enabled: false
 
 image:
   repository: ghcr.io/sigs.k8s.io/node-ipam-controller
@@ -39,6 +44,15 @@ resources:
     memory: 128Mi
 
 nodeSelector: {}
+
+topologySpreadConstraints:
+ - maxSkew: 1
+   topologyKey: kubernetes.io/hostname
+   whenUnsatisfiable: ScheduleAnyway
+   labelSelector:
+     matchLabels:
+       app.kubernetes.io/name: node-ipam-controller
+
 tolerations:
   - effect: NoExecute
     key: node.kubernetes.io/not-ready
