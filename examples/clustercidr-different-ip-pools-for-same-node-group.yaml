@@ -1,0 +1,27 @@
+# You can define couple of clusterCIDR that matches same node groups
+# Please make sure that nodes have the respective labels.
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-medium-ipv4-cidr
+spec:
+  perNodeHostBits: 8
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-medium
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-medium-ipv4-cidr-new
+spec:
+  perNodeHostBits: 8
+  ipv4: 10.245.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-medium
+        operator: Exists
