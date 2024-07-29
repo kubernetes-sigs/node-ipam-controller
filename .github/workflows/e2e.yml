@@ -12,8 +12,8 @@ env:
   K8S_VERSION: "v1.27.3"
   KIND_VERSION: "v0.20.0"
   KIND_CLUSTER_NAME: "nodeipam"
-  REGISTRY: ghcr.io
-  IMAGE_NAME: sigs.k8s.io/node-ipam-controller
+  REGISTRY: gcr.io
+  IMAGE_NAME: k8s-staging-node-ipam-controller/node-ipam-controller
 
 jobs:
   build-image:
@@ -30,9 +30,11 @@ jobs:
 
     - name: Build docker
       run: |
-        docker build -t ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test -f Dockerfile .
+        GIT_TAG=ci-e2e-test PUSH=--load make image-build
         mkdir _output
-        docker save --output _output/node-ipam-controller-image.tar ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test
+        docker images
+        echo "image:" $REGISTRY/$IMAGE_NAME:ci-e2e-test
+        docker save --output _output/node-ipam-controller-image.tar $REGISTRY/$IMAGE_NAME:ci-e2e-test
 
     - uses: actions/upload-artifact@v3
       with:
@@ -98,7 +100,7 @@ jobs:
       run: |
         # preload image
         docker load --input node-ipam-controller-image.tar
-        /usr/local/bin/kind load docker-image ghcr.io/sigs.k8s.io/node-ipam-controller:ci-e2e-test --name ${{ env.KIND_CLUSTER_NAME}}
+        /usr/local/bin/kind load docker-image $REGISTRY/$IMAGE_NAME:ci-e2e-test --name ${{ env.KIND_CLUSTER_NAME}}
 
         # install CRD separately
         /usr/local/bin/kubectl create -f charts/node-ipam-controller/gen/crds/networking.x-k8s.io_clustercidrs.yaml
@@ -108,7 +110,7 @@ jobs:
         sed -i 's/tag.*/tag: "ci-e2e-test"/' charts/node-ipam-controller/values.yaml
         sed -i 's/installCRDs: true/installCRDs: false/' charts/node-ipam-controller/values.yaml
         # install the controller
-        helm template charts/node-ipam-controller --values charts/node-ipam-controller/values.yaml  > temp.yaml
+        helm template charts/node-ipam-controller --values charts/node-ipam-controller/values.yaml --set image.repository=$REGISTRY/$IMAGE_NAME  > temp.yaml
         cat temp.yaml
         /usr/local/bin/kubectl apply -f ./temp.yaml
         /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=node-ipam-controller
