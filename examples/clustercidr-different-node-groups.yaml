@@ -1,0 +1,78 @@
+# Please ensure that the nodes have the respective labels.
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: controlplane-ipv4-cidr
+spec:
+  perNodeHostBits: 7
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/control-plane
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-xsmall-ipv4-cidr
+spec:
+  perNodeHostBits: 6
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-xsmall
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-small-ipv4-cidr
+spec:
+  perNodeHostBits: 7
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-small
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-medium-ipv4-cidr
+spec:
+  perNodeHostBits: 8
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-medium
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-large-ipv4-cidr
+spec:
+  perNodeHostBits: 9
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-large
+        operator: Exists
+---
+apiVersion: networking.x-k8s.io/v1
+kind: ClusterCIDR
+metadata:
+  name: worker-xlarge-ipv4-cidr
+spec:
+  perNodeHostBits: 10
+  ipv4: 10.244.0.0/16
+  nodeSelector:
+    nodeSelectorTerms:
+    - matchExpressions:
+      - key: platform.node_group/worker-xlarge
+        operator: Exists
