@@ -47,11 +47,17 @@ spec:
                   At least one of ipv4 and ipv6 must be specified. This field is optional
                   and immutable.
                 type: string
+                x-kubernetes-validations:
+                - message: IPv4 cannot be changed.
+                  rule: oldSelf == self
               ipv6:
                 description: ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
                   At least one of ipv4 and ipv6 must be specified. This field is optional
                   and immutable.
                 type: string
+                x-kubernetes-validations:
+                - message: IPv6 cannot be changed.
+                  rule: oldSelf == self
               nodeSelector:
                 description: nodeSelector defines which nodes the config is applicable
                   to. An empty or nil nodeSelector selects all nodes. This field is
@@ -138,6 +144,9 @@ spec:
                 - nodeSelectorTerms
                 type: object
                 x-kubernetes-map-type: atomic
+                x-kubernetes-validations:
+                - message: NodeSelector cannot be changed.
+                  rule: oldSelf == self
               perNodeHostBits:
                 description: perNodeHostBits defines the number of host bits to be
                   configured per node. A subnet mask determines how much of the address
@@ -148,6 +157,9 @@ spec:
                   value is 4 (16 IPs). This field is required and immutable.
                 format: int32
                 type: integer
+                x-kubernetes-validations:
+                - message: PerNodeHostBits cannot be changed.
+                  rule: oldSelf == self
             required:
             - perNodeHostBits
             type: object

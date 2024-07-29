@@ -52,6 +52,7 @@ type ClusterCIDRSpec struct {
 	// An empty or nil nodeSelector selects all nodes.
 	// This field is optional and immutable.
 	// +optional
+	// +kubebuilder:validation:XValidation:message="NodeSelector cannot be changed.",rule="oldSelf == self"
 	NodeSelector *api.NodeSelector `json:"nodeSelector,omitempty"`
 
 	// perNodeHostBits defines the number of host bits to be configured per node.
@@ -63,18 +64,21 @@ type ClusterCIDRSpec struct {
 	// This field is required and immutable.
 	// +kubebuilder:validation:Required
 	// +required
+	// +kubebuilder:validation:XValidation:message="PerNodeHostBits cannot be changed.",rule="oldSelf == self"
 	PerNodeHostBits int32 `json:"perNodeHostBits"`
 
 	// ipv4 defines an IPv4 IP block in CIDR notation(e.g. "10.0.0.0/8").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
 	// +optional
+	// +kubebuilder:validation:XValidation:message="IPv4 cannot be changed.",rule="oldSelf == self"
 	IPv4 string `json:"ipv4,omitempty"`
 
 	// ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
 	// At least one of ipv4 and ipv6 must be specified.
 	// This field is optional and immutable.
 	// +optional
+	// +kubebuilder:validation:XValidation:message="IPv6 cannot be changed.",rule="oldSelf == self"
 	IPv6 string `json:"ipv6,omitempty"`
 }
 
