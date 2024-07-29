@@ -101,7 +101,7 @@ func main() {
 func runControllers(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger) {
 	cidrClient, err := clientset.NewForConfig(cfg)
 	if err != nil {
-		logger.Error(err, "failed to build cidr clientset")
+		logger.Error(err, "failed to build kubernetes clientset")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
