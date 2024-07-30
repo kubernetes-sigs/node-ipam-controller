@@ -168,6 +168,25 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		}, gomega.Equal(expectedPodCIDRs3)))
 	})
 
+	ginkgo.It("should fail to update immutable fields", func() {
+		// Create the test ClusterCIDR.
+		originalClusterCIDR := makeClusterCIDR("validate-immutable", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		clusterCIDR, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+		clusterCIDR.Spec.NodeSelector = nodeSelector(map[string][]string{"ipv4": {"false"}, "ipv6": {"false"}})
+		clusterCIDR.Spec.PerNodeHostBits = int32(9)
+		clusterCIDR.Spec.IPv4 = "10.10.0.0/23"
+		clusterCIDR.Spec.IPv6 = "fd00:30:101::/119"
+
+		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Update(ctx, clusterCIDR, metav1.UpdateOptions{})
+
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("NodeSelector cannot be changed.")))
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("PerNodeHostBits cannot be changed.")))
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv4 cannot be changed.")))
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv6 cannot be changed.")))
+	})
+
 	ginkgo.It("should delete ClusterCIDR only after associated node is deleted", func() {
 		// Create a ClusterCIDR.
 		clusterCIDR := makeClusterCIDR("dualstack-cc-del", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
