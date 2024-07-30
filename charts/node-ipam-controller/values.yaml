@@ -1,5 +1,5 @@
 # Specifies the replica count for Deployment
-replicaCount: 3
+replicaCount: 1
 
 # Leader-election is enabled by default; you can override the following options
 leaderElection:
