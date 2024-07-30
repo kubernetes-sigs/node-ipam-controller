@@ -24,9 +24,9 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
-         {{- if .Values.leaderElection.enabled }}
+         {{- if not .Values.leaderElection.enabled }}
           args:
-          - --enable-leader-election=true
+          - --enable-leader-election=false
          {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

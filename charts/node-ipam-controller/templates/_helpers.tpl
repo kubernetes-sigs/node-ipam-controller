@@ -56,17 +56,3 @@ Create the name of the service account to use
 {{- define "node-ipam-controller.serviceAccountName" -}}
 {{- default (include "node-ipam-controller.fullname" .) .Values.serviceAccount.name }}
 {{- end }}
-
-{{/*
-Return the name of the Role
-*/}}
-{{- define "node-ipam-controller.roleName" -}}
-{{- printf "%s-%s" .Release.Name "node-ipam-controller-role" -}}
-{{- end -}}
-
-{{/*
-Return the name of the RoleBinding
-*/}}
-{{- define "node-ipam-controller.roleBindingName" -}}
-{{- printf "%s-%s" .Release.Name "node-ipam-controller-rolebinding" -}}
-{{- end -}}

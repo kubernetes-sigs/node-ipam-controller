@@ -1,8 +1,8 @@
 # Specifies the replica count for Deployment
-# Set leaderElection if you want to use more than 1 replica
 replicaCount: 1
 
-leaderElection:
+# Leader-election is enabled by default
+leaderElection: 
   enabled: true
 
 image:
