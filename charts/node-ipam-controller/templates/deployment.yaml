@@ -25,7 +25,7 @@ spec:
       labels:
         {{- include "node-ipam-controller.selectorLabels" . | nindent 8 }}
     spec:
-      hostNetwork: false
+      hostNetwork: true
       serviceAccountName: {{ include "node-ipam-controller.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
