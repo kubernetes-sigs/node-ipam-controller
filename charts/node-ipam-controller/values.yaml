@@ -3,7 +3,7 @@
 replicaCount: 1
 
 leaderElection:
-  enabled: false
+  enabled: true
 
 image:
   repository: ghcr.io/sigs.k8s.io/node-ipam-controller

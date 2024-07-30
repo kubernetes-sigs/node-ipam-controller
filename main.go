@@ -57,7 +57,7 @@ func main() {
 	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
 	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", false, "Enable leader election for the controller manager. Ensures there is only one active controller manager.")
+	flag.BoolVar(&enableLeaderElection, "enable-leader-election", true, "Enable leader election for the controller manager. Ensures there is only one active controller manager.")
 
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
