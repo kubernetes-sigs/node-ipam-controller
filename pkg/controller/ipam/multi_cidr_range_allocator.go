@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"slices"
 	"sync"
 	"time"
 
@@ -1090,12 +1091,10 @@ func (r *multiCIDRRangeAllocator) reconcileCreate(ctx context.Context, clusterCI
 	defer r.lock.Unlock()
 
 	logger := klog.FromContext(ctx)
-	if needToAddFinalizer(clusterCIDR, clusterCIDRFinalizer) {
-		logger.V(3).Info("Creating ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
-		if err := r.createClusterCIDR(ctx, clusterCIDR, false); err != nil {
-			logger.Error(err, "Unable to create ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
-			return err
-		}
+	logger.V(3).Info("Reconciling ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
+	if err := r.createClusterCIDR(ctx, clusterCIDR, false); err != nil {
+		logger.Error(err, "failed to reconcile ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
+		return err
 	}
 	return nil
 }
@@ -1154,13 +1153,13 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 	if updatedClusterCIDR.ResourceVersion == "" {
 		// Create is only used for creating default ClusterCIDR.
 		if _, err := r.networkClient.Create(ctx, updatedClusterCIDR, metav1.CreateOptions{}); err != nil {
-			logger.V(2).Info("Error creating ClusterCIDR", "clusterCIDR", klog.KObj(clusterCIDR), "err", err)
+			logger.V(2).Info("failed to create ClusterCIDR", "clusterCIDR", klog.KObj(clusterCIDR), "err", err)
 			return err
 		}
 	} else {
 		// Update the ClusterCIDR object when called from reconcileCreate.
 		if _, err := r.networkClient.Update(ctx, updatedClusterCIDR, metav1.UpdateOptions{}); err != nil {
-			logger.V(2).Info("Error creating ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
+			logger.V(2).Info("failed to update ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
 			return err
 		}
 	}
@@ -1212,7 +1211,13 @@ func (r *multiCIDRRangeAllocator) mapClusterCIDRSet(cidrMap map[string][]*cidrse
 	}
 
 	if clusterCIDRSetList, ok := cidrMap[nodeSelector]; ok {
-		cidrMap[nodeSelector] = append(clusterCIDRSetList, clusterCIDRSet)
+		containsClusterCIDRSet := slices.ContainsFunc(clusterCIDRSetList, func(c *cidrset.ClusterCIDR) bool {
+			return clusterCIDRSet.Name == c.Name
+		})
+
+		if !containsClusterCIDRSet {
+			cidrMap[nodeSelector] = append(clusterCIDRSetList, clusterCIDRSet)
+		}
 	} else {
 		cidrMap[nodeSelector] = []*cidrset.ClusterCIDR{clusterCIDRSet}
 	}
