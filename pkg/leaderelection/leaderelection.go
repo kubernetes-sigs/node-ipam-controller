@@ -6,13 +6,23 @@ import (
 	"time"
 
 	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
 	"k8s.io/klog/v2"
 )
 
+// Config holds the configuration parameters for leader election
+type Config struct {
+	LeaseDuration time.Duration
+	RenewDeadline time.Duration
+	RetryPeriod   time.Duration
+	ResourceLock  string
+	ResourceName  string
+}
+
 // StartLeaderElection starts the leader election process
-func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, runFunc func(ctx context.Context)) {
+func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger, cancel context.CancelFunc, runFunc func(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger), config Config) {
 	id := os.Getenv("POD_NAME")
 	if id == "" {
 		klog.Fatalf("POD_NAME environment variable not set")
@@ -24,9 +34,9 @@ func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, r
 	}
 
 	rl, err := resourcelock.New(
-		resourcelock.LeasesResourceLock,
+		config.ResourceLock,
 		namespace,
-		"node-ipam-controller",
+		config.ResourceName,
 		kubeClient.CoreV1(),
 		kubeClient.CoordinationV1(),
 		resourcelock.ResourceLockConfig{
@@ -38,22 +48,24 @@ func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, r
 	}
 
 	leaderelection.RunOrDie(ctx, leaderelection.LeaderElectionConfig{
-		Lock:          rl,
-		LeaseDuration: 15 * time.Second,
-		RenewDeadline: 10 * time.Second,
-		RetryPeriod:   2 * time.Second,
+		Lock:            rl,
+		LeaseDuration:   config.LeaseDuration,
+		RenewDeadline:   config.RenewDeadline,
+		RetryPeriod:     config.RetryPeriod,
+		ReleaseOnCancel: true,
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
-				klog.Info("Started leading")
-				runFunc(ctx)
+				klog.Infof("Started leading as %s", id)
+				runFunc(ctx, kubeClient, cfg, logger)
 			},
 			OnStoppedLeading: func() {
-				klog.Info("Stopped leading")
-				klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+				klog.Infof("%s stopped leading", id)
+				// Instead of exiting, cancel the context to trigger the shutdown sequence
+				cancel()
 			},
 			OnNewLeader: func(identity string) {
 				if identity == id {
-					klog.Info("I am the new leader")
+					klog.Infof("I am the new leader: %s", id)
 				} else {
 					klog.Infof("New leader elected: %s", identity)
 				}

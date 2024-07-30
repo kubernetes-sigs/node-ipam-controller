@@ -1,9 +1,14 @@
 # Specifies the replica count for Deployment
-replicaCount: 1
+replicaCount: 3
 
-# Leader-election is enabled by default
-leaderElection: 
+# Leader-election is enabled by default; you can override the following options
+leaderElection:
   enabled: true
+# leaseDuration: 15s
+# renewDeadline: 10s
+# retryPeriod: 2s
+# resourceLock: "leases"
+# resourceName: "node-ipam-controller"
 
 image:
   repository: ghcr.io/sigs.k8s.io/node-ipam-controller

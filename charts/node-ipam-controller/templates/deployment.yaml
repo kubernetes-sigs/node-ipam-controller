@@ -5,7 +5,14 @@ metadata:
   labels:
     {{- include "node-ipam-controller.labels" . | nindent 4 }}
 spec:
+  {{- if gt (int .Values.replicaCount) 1 }}
+    {{- if not .Values.leaderElection.enabled }}
+      {{- fail "You must set leaderElection.enabled to true to use more than 1 replica" }}
+    {{- end }}
   replicas: {{ .Values.replicaCount }}
+  {{- else }}
+  replicas: 1
+  {{- end }}
   selector:
     matchLabels:
       {{- include "node-ipam-controller.selectorLabels" . | nindent 6 }}
@@ -18,7 +25,7 @@ spec:
       labels:
         {{- include "node-ipam-controller.selectorLabels" . | nindent 8 }}
     spec:
-      hostNetwork: true
+      hostNetwork: false
       serviceAccountName: {{ include "node-ipam-controller.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
@@ -27,6 +34,9 @@ spec:
          {{- if not .Values.leaderElection.enabled }}
           args:
           - --enable-leader-election=false
+         {{- else}}
+          args:
+         {{- include "node-ipam-controller.leaderElection" . | nindent 12 }}
          {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
