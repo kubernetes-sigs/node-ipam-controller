@@ -109,8 +109,6 @@ func main() {
 		go runControllers(ctx, kubeClient, cfg, logger)
 	}
 
-	<-ctx.Done()
-	logger.Info("Shutting down server")
 	if err := server.Shutdown(ctx); err != nil {
 		logger.Error(err, "failed to shut down health server")
 	}
