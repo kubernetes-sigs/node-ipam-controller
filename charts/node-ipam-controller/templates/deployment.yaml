@@ -10,10 +10,8 @@ spec:
       {{- fail "You must set leaderElection.enabled to true to use more than 1 replica" }}
     {{- end }}
   replicas: {{ .Values.replicaCount }}
-  {{- else if eq (int .Values.replicaCount) 0 }}
-  replicas: 0
   {{- else }}
-  replicas: 1
+  replicas: {{ .Values.replicaCount }}  
   {{- end }}
   selector:
     matchLabels:
