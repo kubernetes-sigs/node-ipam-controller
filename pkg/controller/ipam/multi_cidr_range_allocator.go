@@ -530,8 +530,20 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 			return err
 		}
 
+		// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
+		// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
+		// not want to do that because they just want to get rid of that specific range. In the other hand, users
+		// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
+		// fail and retry a couple of time can provide information to these users.
+		// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+		if len(clusterCIDRList) == 0 {
+			return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+		}
+
+		attempts := 0
 		for _, clusterCIDR := range clusterCIDRList {
 			occupiedCount := 0
+			attempts++
 
 			for _, cidr := range node.Spec.PodCIDRs {
 				_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
@@ -556,7 +568,7 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 			}
 		}
 
-		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+		return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
 	}(node)
 
 	return err
