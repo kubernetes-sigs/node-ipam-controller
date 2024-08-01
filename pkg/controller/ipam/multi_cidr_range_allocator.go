@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
 	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
@@ -261,24 +261,6 @@ func NewMultiCIDRRangeAllocator(
 		ra.filterOutServiceRange(logger, allocatorParams.SecondaryServiceCIDR)
 	} else {
 		logger.Info("No Secondary Service CIDR provided. Skipping filtering out secondary service addresses")
-	}
-
-	if nodeList != nil {
-		for _, node := range nodeList.Items {
-			if len(node.Spec.PodCIDRs) == 0 {
-				logger.V(4).Info("Node has no CIDR, ignoring", "node", klog.KObj(&node))
-				continue
-			}
-			logger.Info("Node has CIDR, occupying it in CIDR map", "node", klog.KObj(&node), "podCIDRs", node.Spec.PodCIDRs)
-			if err := ra.occupyCIDRs(logger, &node); err != nil {
-				// This will happen if:
-				// 1. We find garbage in the podCIDRs field. Retrying is useless.
-				// 2. CIDR out of range: This means ClusterCIDR is not yet created
-				// This error will keep crashing controller-manager until the
-				// appropriate ClusterCIDR has been created
-				return nil, err
-			}
-		}
 	}
 
 	_, err = nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
