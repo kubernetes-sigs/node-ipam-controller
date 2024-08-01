@@ -97,7 +97,7 @@ func main() {
 
 	if enableLeaderElection {
 		logger.Info("Leader election is enabled.")
-		go leaderelection.StartLeaderElection(ctx, kubeClient, cfg, logger, cancel, runControllers, leaderelection.Config{
+		leaderelection.StartLeaderElection(ctx, kubeClient, cfg, logger, cancel, runControllers, leaderelection.Config{
 			LeaseDuration: leaseDuration,
 			RenewDeadline: renewDeadline,
 			RetryPeriod:   retryPeriod,
@@ -106,7 +106,7 @@ func main() {
 		})
 	} else {
 		logger.Info("Leader election is disabled.")
-		go runControllers(ctx, kubeClient, cfg, logger)
+		runControllers(ctx, kubeClient, cfg, logger)
 	}
 
 	if err := server.Shutdown(ctx); err != nil {
