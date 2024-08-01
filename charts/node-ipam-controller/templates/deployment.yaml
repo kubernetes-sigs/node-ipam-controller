@@ -5,7 +5,14 @@ metadata:
   labels:
     {{- include "node-ipam-controller.labels" . | nindent 4 }}
 spec:
+  {{- if gt (int .Values.replicaCount) 1 }}
+    {{- if not .Values.leaderElection.enabled }}
+      {{- fail "You must set leaderElection.enabled to true to use more than 1 replica" }}
+    {{- end }}
   replicas: {{ .Values.replicaCount }}
+  {{- else }}
+  replicas: {{ .Values.replicaCount }}  
+  {{- end }}
   selector:
     matchLabels:
       {{- include "node-ipam-controller.selectorLabels" . | nindent 6 }}
@@ -24,6 +31,13 @@ spec:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
         - name: {{ .Chart.Name }}
+         {{- if not .Values.leaderElection.enabled }}
+          args:
+          - --enable-leader-election=false
+         {{- else}}
+          args:
+         {{- include "node-ipam-controller.leaderElection" . | nindent 12 }}
+         {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
@@ -46,12 +60,25 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          env:
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.name
+          - name: POD_NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.affinity }}
       affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.tolerations }}

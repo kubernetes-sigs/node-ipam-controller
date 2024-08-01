@@ -56,3 +56,24 @@ Create the name of the service account to use
 {{- define "node-ipam-controller.serviceAccountName" -}}
 {{- default (include "node-ipam-controller.fullname" .) .Values.serviceAccount.name }}
 {{- end }}
+
+{{/*
+Leader Election
+*/}}
+{{- define "node-ipam-controller.leaderElection"}}
+{{- if .Values.leaderElection.leaseDuration }}
+- --leader-elect-lease-duration={{ .Values.leaderElection.leaseDuration }}
+{{- end }}
+{{- if .Values.leaderElection.renewDeadline }}
+- --leader-elect-renew-deadline={{ .Values.leaderElection.renewDeadline }}
+{{- end }}
+{{- if .Values.leaderElection.retryPeriod }}
+- --leader-elect-retry-period={{ .Values.leaderElection.retryPeriod }}
+{{- end }}
+{{- if .Values.leaderElection.resourceLock }}
+- --leader-elect-resource-lock={{ .Values.leaderElection.resourceLock }}
+{{- end }}
+{{- if .Values.leaderElection.resourceName }}
+- --leader-elect-resource-name={{ .Values.leaderElection.resourceName }}
+{{- end }}
+{{- end }}

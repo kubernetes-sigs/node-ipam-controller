@@ -1,4 +1,14 @@
+# Specifies the replica count for Deployment
 replicaCount: 1
+
+# Leader-election is enabled by default; you can override the following options
+leaderElection:
+  enabled: true
+# leaseDuration: 15s
+# renewDeadline: 10s
+# retryPeriod: 2s
+# resourceLock: "leases"
+# resourceName: "node-ipam-controller"
 
 image:
   repository: registry.k8s.io/node-ipam-controller
@@ -39,6 +49,15 @@ resources:
     memory: 128Mi
 
 nodeSelector: {}
+
+topologySpreadConstraints:
+ - maxSkew: 1
+   topologyKey: kubernetes.io/hostname
+   whenUnsatisfiable: ScheduleAnyway
+   labelSelector:
+     matchLabels:
+       app.kubernetes.io/name: node-ipam-controller
+
 tolerations:
   - effect: NoExecute
     key: node.kubernetes.io/not-ready
