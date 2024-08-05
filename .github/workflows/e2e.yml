@@ -13,7 +13,7 @@ env:
   KIND_VERSION: "v0.20.0"
   KIND_CLUSTER_NAME: "nodeipam"
   REGISTRY: gcr.io
-  IMAGE_NAME: k8s-staging-node-ipam-controller/node-ipam-controller
+  IMAGE_NAME: k8s-staging-networking/node-ipam-controller
 
 jobs:
   build-image:

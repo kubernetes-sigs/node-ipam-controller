@@ -15,7 +15,7 @@
 GIT_TAG ?= $(shell git describe --tags --always --dirty)
 GOENV ?= GO111MODULE=on CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 LDFLAGS ?= -X main.Version=$(GIT_TAG)
-IMAGE_REGISTRY ?= gcr.io/k8s-staging-node-ipam-controller
+IMAGE_REGISTRY ?= gcr.io/k8s-staging-networking
 IMAGE_NAME := node-ipam-controller
 IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMG ?= $(IMAGE_REPO):$(GIT_TAG)
