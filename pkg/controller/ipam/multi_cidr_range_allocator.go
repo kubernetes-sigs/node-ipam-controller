@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
 	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
@@ -274,9 +274,9 @@ func NewMultiCIDRRangeAllocator(
 				// This will happen if:
 				// 1. We find garbage in the podCIDRs field. Retrying is useless.
 				// 2. CIDR out of range: This means ClusterCIDR is not yet created
-				// This error will keep crashing controller-manager until the
-				// appropriate ClusterCIDR has been created
-				return nil, err
+				//    or the node is not managed by this IPAM controller
+				// This error will be information only, see https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+				logger.Info("Node CIDR has no associated ClusterCIDR, skipping", "node", klog.KObj(&node), "error", err)
 			}
 		}
 	}
