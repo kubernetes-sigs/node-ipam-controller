@@ -299,181 +299,6 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 			expectedAllocatedCIDR: nil,
 			ctrlCreateFail:        false,
 		},
-		// failure cases.
-		{
-			description: "fail, single stack incorrect node allocation",
-			fakeNodeHandler: &test.FakeNodeHandler{
-				Existing: []*corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "node0",
-							Labels: map[string]string{
-								"testLabel-0": "node0",
-							},
-						},
-						Spec: corev1.NodeSpec{
-							PodCIDRs: []string{"172.10.0.1/24"},
-						},
-					},
-				},
-				Clientset: fake.NewSimpleClientset(),
-			},
-			allocatorParams: CIDRAllocatorParams{
-				ServiceCIDR:          nil,
-				SecondaryServiceCIDR: nil,
-			},
-			testCIDRMap: getTestCidrMap(
-				map[string][]*testClusterCIDR{
-					getTestNodeSelector([]testNodeSelectorRequirement{
-						{
-							key:      "testLabel-0",
-							operator: corev1.NodeSelectorOpIn,
-							values:   []string{"node0"},
-						},
-					}): {
-						{
-							name:            "single-stack-cidr-allocate-fail",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-						},
-					},
-				}),
-			allocatedCIDRs:        nil,
-			expectedAllocatedCIDR: nil,
-			ctrlCreateFail:        true,
-		},
-		{
-			description: "fail, dualstack node allocating from non existing cidr",
-
-			fakeNodeHandler: &test.FakeNodeHandler{
-				Existing: []*corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "node0",
-							Labels: map[string]string{
-								"testLabel-0": "node0",
-							},
-						},
-						Spec: corev1.NodeSpec{
-							PodCIDRs: []string{"10.10.0.1/24", "a00::/86"},
-						},
-					},
-				},
-				Clientset: fake.NewSimpleClientset(),
-			},
-			allocatorParams: CIDRAllocatorParams{
-				ServiceCIDR:          nil,
-				SecondaryServiceCIDR: nil,
-			},
-			testCIDRMap: getTestCidrMap(
-				map[string][]*testClusterCIDR{
-					getTestNodeSelector([]testNodeSelectorRequirement{
-						{
-							key:      "testLabel-0",
-							operator: corev1.NodeSelectorOpIn,
-							values:   []string{"node0"},
-						},
-					}): {
-						{
-							name:            "dual-stack-cidr-allocate-fail",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
-						},
-					},
-				}),
-			allocatedCIDRs:        nil,
-			expectedAllocatedCIDR: nil,
-			ctrlCreateFail:        true,
-		},
-		{
-			description: "fail, dualstack node allocating bad v4",
-
-			fakeNodeHandler: &test.FakeNodeHandler{
-				Existing: []*corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "node0",
-							Labels: map[string]string{
-								"testLabel-0": "node0",
-							},
-						},
-						Spec: corev1.NodeSpec{
-							PodCIDRs: []string{"172.10.0.1/24", "ace:cab:deca::1/120"},
-						},
-					},
-				},
-				Clientset: fake.NewSimpleClientset(),
-			},
-			allocatorParams: CIDRAllocatorParams{
-				ServiceCIDR:          nil,
-				SecondaryServiceCIDR: nil,
-			},
-			testCIDRMap: getTestCidrMap(
-				map[string][]*testClusterCIDR{
-					getTestNodeSelector([]testNodeSelectorRequirement{
-						{
-							key:      "testLabel-0",
-							operator: corev1.NodeSelectorOpIn,
-							values:   []string{"node0"},
-						},
-					}): {
-						{
-							name:            "dual-stack-cidr-bad-v4",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
-						},
-					},
-				}),
-			allocatedCIDRs:        nil,
-			expectedAllocatedCIDR: nil,
-			ctrlCreateFail:        true,
-		},
-		{
-			description: "fail, dualstack node allocating bad v6",
-
-			fakeNodeHandler: &test.FakeNodeHandler{
-				Existing: []*corev1.Node{
-					{
-						ObjectMeta: metav1.ObjectMeta{
-							Name: "node0",
-							Labels: map[string]string{
-								"testLabel-0": "node0",
-							},
-						},
-						Spec: corev1.NodeSpec{
-							PodCIDRs: []string{"10.10.0.1/24", "cdd::/86"},
-						},
-					},
-				},
-				Clientset: fake.NewSimpleClientset(),
-			},
-			allocatorParams: CIDRAllocatorParams{
-				ServiceCIDR:          nil,
-				SecondaryServiceCIDR: nil,
-			},
-			testCIDRMap: getTestCidrMap(
-				map[string][]*testClusterCIDR{
-					getTestNodeSelector([]testNodeSelectorRequirement{
-						{
-							key:      "testLabel-0",
-							operator: corev1.NodeSelectorOpIn,
-							values:   []string{"node0"},
-						},
-					}): {
-						{
-							name:            "dual-stack-cidr-bad-v6",
-							perNodeHostBits: 8,
-							ipv4CIDR:        "10.10.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
-						},
-					},
-				}),
-			allocatedCIDRs:        nil,
-			expectedAllocatedCIDR: nil,
-			ctrlCreateFail:        true,
-		},
 	}
 
 	// test function
@@ -1322,6 +1147,176 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 				0: {"127.123.234.0/30", "127.123.234.4/30", "127.123.234.8/30", "127.123.234.12/30"},
 			},
 		},
+		{
+			description: "fail, single stack incorrect node allocation",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+						Spec: corev1.NodeSpec{
+							PodCIDRs: []string{"172.10.0.1/24"},
+						},
+					},
+				},
+				Clientset: fake.NewSimpleClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					getTestNodeSelector([]testNodeSelectorRequirement{
+						{
+							key:      "testLabel-0",
+							operator: corev1.NodeSelectorOpIn,
+							values:   []string{"node0"},
+						},
+					}): {
+						{
+							name:            "single-stack-cidr-allocate-fail",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.10.0.0/16",
+						},
+					},
+				}),
+			allocatedCIDRs:        nil,
+			expectedAllocatedCIDR: nil,
+		},
+		{
+			description: "fail, dualstack node allocating from non existing cidr",
+
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+						Spec: corev1.NodeSpec{
+							PodCIDRs: []string{"10.10.0.1/24", "a00::/86"},
+						},
+					},
+				},
+				Clientset: fake.NewSimpleClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					getTestNodeSelector([]testNodeSelectorRequirement{
+						{
+							key:      "testLabel-0",
+							operator: corev1.NodeSelectorOpIn,
+							values:   []string{"node0"},
+						},
+					}): {
+						{
+							name:            "dual-stack-cidr-allocate-fail",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.10.0.0/16",
+							ipv6CIDR:        "ace:cab:deca::/112",
+						},
+					},
+				}),
+			allocatedCIDRs:        nil,
+			expectedAllocatedCIDR: nil,
+		},
+		{
+			description: "fail, dualstack node allocating bad v4",
+
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+						Spec: corev1.NodeSpec{
+							PodCIDRs: []string{"172.10.0.1/24", "ace:cab:deca::1/120"},
+						},
+					},
+				},
+				Clientset: fake.NewSimpleClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					getTestNodeSelector([]testNodeSelectorRequirement{
+						{
+							key:      "testLabel-0",
+							operator: corev1.NodeSelectorOpIn,
+							values:   []string{"node0"},
+						},
+					}): {
+						{
+							name:            "dual-stack-cidr-bad-v4",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.10.0.0/16",
+							ipv6CIDR:        "ace:cab:deca::/112",
+						},
+					},
+				}),
+			allocatedCIDRs:        nil,
+			expectedAllocatedCIDR: nil,
+		},
+		{
+			description: "fail, dualstack node allocating bad v6",
+
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+						Spec: corev1.NodeSpec{
+							PodCIDRs: []string{"10.10.0.1/24", "cdd::/86"},
+						},
+					},
+				},
+				Clientset: fake.NewSimpleClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					getTestNodeSelector([]testNodeSelectorRequirement{
+						{
+							key:      "testLabel-0",
+							operator: corev1.NodeSelectorOpIn,
+							values:   []string{"node0"},
+						},
+					}): {
+						{
+							name:            "dual-stack-cidr-bad-v6",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.10.0.0/16",
+							ipv6CIDR:        "ace:cab:deca::/112",
+						},
+					},
+				}),
+			allocatedCIDRs:        nil,
+			expectedAllocatedCIDR: nil,
+		},
 	}
 
 	logger, ctx := ktesting.NewTestContext(t)
@@ -1397,7 +1392,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 		}
 	}
 	for _, tc := range testCaseMultiCIDRs {
-		testFunc(tc)
+		t.Run(tc.description, func(t *testing.T) {
+			testFunc(tc)
+		})
 	}
 }
 

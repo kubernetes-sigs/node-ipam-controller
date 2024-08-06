@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
 	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
@@ -274,9 +274,9 @@ func NewMultiCIDRRangeAllocator(
 				// This will happen if:
 				// 1. We find garbage in the podCIDRs field. Retrying is useless.
 				// 2. CIDR out of range: This means ClusterCIDR is not yet created
-				// This error will keep crashing controller-manager until the
-				// appropriate ClusterCIDR has been created
-				return nil, err
+				//    or the node is not managed by this IPAM controller
+				// This error will be information only, see https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+				logger.Info("Node CIDR has no associated ClusterCIDR, skipping", "node", klog.KObj(&node), "error", err)
 			}
 		}
 	}
@@ -530,8 +530,20 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 			return err
 		}
 
+		// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
+		// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
+		// not want to do that because they just want to get rid of that specific range. In the other hand, users
+		// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
+		// fail and retry a couple of time can provide information to these users.
+		// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+		if len(clusterCIDRList) == 0 {
+			return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+		}
+
+		attempts := 0
 		for _, clusterCIDR := range clusterCIDRList {
 			occupiedCount := 0
+			attempts++
 
 			for _, cidr := range node.Spec.PodCIDRs {
 				_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
@@ -556,7 +568,7 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 			}
 		}
 
-		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+		return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
 	}(node)
 
 	return err
