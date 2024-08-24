@@ -25,6 +25,8 @@ import (
 	"os"
 	"time"
 
+	"sigs.k8s.io/node-ipam-controller/pkg/util/env"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/component-base/logs"
 	logsapi "k8s.io/component-base/logs/api/v1"
@@ -46,32 +48,49 @@ import (
 	"k8s.io/klog/v2"
 )
 
+type Config struct {
+	apiServerURL         string
+	kubeconfig           string
+	healthProbeAddr      string
+	enableLeaderElection bool
+	leaseDuration        time.Duration
+	renewDeadline        time.Duration
+	retryPeriod          time.Duration
+	resourceLock         string
+	resourceName         string
+}
+
+func (c *Config) Load() {
+	flag.StringVar(&c.kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&c.apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
+	flag.StringVar(&c.healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
+	flag.BoolVar(&c.enableLeaderElection, "enable-leader-election", true, "Enable leader election for the controller manager. Ensures there is only one active controller manager.")
+	flag.DurationVar(&c.leaseDuration, "leader-elect-lease-duration", 15*time.Second, "Duration that non-leader candidates will wait to force acquire leadership (duration string).")
+	flag.DurationVar(&c.renewDeadline, "leader-elect-renew-deadline", 10*time.Second, "Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string).")
+	flag.DurationVar(&c.retryPeriod, "leader-elect-retry-period", 2*time.Second, "Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string).")
+	flag.StringVar(&c.resourceLock, "leader-elect-resource-lock", "leases", "The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'.")
+	flag.StringVar(&c.resourceName, "leader-elect-resource-name", "node-ipam-controller", "The name of the resource object that is used for locking.")
+	flag.Parse()
+
+	env.StringVar(&c.apiServerURL, "IPAM_API_SERVER_URL")
+	env.StringVar(&c.kubeconfig, "IPAM_KUBECONFIG")
+	env.StringVar(&c.healthProbeAddr, "IPAM_HEALTH_PROBE_ADDR")
+	env.BoolVar(&c.enableLeaderElection, "IPAM_ENABLE_LEADER_ELECTION")
+	env.DurationVar(&c.leaseDuration, "IPAM_LEASE_DURATION")
+	env.DurationVar(&c.renewDeadline, "IPAM_RENEW_DEADLINE")
+	env.DurationVar(&c.retryPeriod, "IPAM_RETRY_PERIOD")
+	env.StringVar(&c.resourceLock, "IPAM_RESOURCE_LOCK")
+	env.StringVar(&c.resourceName, "IPAM_RESOURCE_NAME")
+
+	fmt.Println(c)
+}
+
 func main() {
-	var (
-		apiServerURL         string
-		kubeconfig           string
-		healthProbeAddr      string
-		enableLeaderElection bool
-		leaseDuration        time.Duration
-		renewDeadline        time.Duration
-		retryPeriod          time.Duration
-		resourceLock         string
-		resourceName         string
-	)
-
-	flag.StringVar(&kubeconfig, "kubeconfig", "", "Path to a kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&apiServerURL, "apiserver", "", "The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.")
-	flag.StringVar(&healthProbeAddr, "health-probe-address", ":8081", "Specifies the TCP address for the health server to listen on.")
-	flag.BoolVar(&enableLeaderElection, "enable-leader-election", true, "Enable leader election for the controller manager. Ensures there is only one active controller manager.")
-	flag.DurationVar(&leaseDuration, "leader-elect-lease-duration", 15*time.Second, "Duration that non-leader candidates will wait to force acquire leadership (duration string).")
-	flag.DurationVar(&renewDeadline, "leader-elect-renew-deadline", 10*time.Second, "Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string).")
-	flag.DurationVar(&retryPeriod, "leader-elect-retry-period", 2*time.Second, "Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string).")
-	flag.StringVar(&resourceLock, "leader-elect-resource-lock", "leases", "The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'.")
-	flag.StringVar(&resourceName, "leader-elect-resource-name", "node-ipam-controller", "The name of the resource object that is used for locking.")
-
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
-	flag.Parse()
+
+	config := &Config{}
+	config.Load()
 
 	logs.InitLogs()
 	if err := logsapi.ValidateAndApply(c, nil); err != nil {
@@ -82,8 +101,8 @@ func main() {
 	defer cancel()
 	logger := klog.FromContext(ctx)
 
-	server := startHealthProbeServer(healthProbeAddr, logger)
-	cfg, err := clientcmd.BuildConfigFromFlags(apiServerURL, kubeconfig)
+	server := startHealthProbeServer(config.healthProbeAddr, logger)
+	cfg, err := clientcmd.BuildConfigFromFlags(config.apiServerURL, config.kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
@@ -95,14 +114,14 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	if enableLeaderElection {
+	if config.enableLeaderElection {
 		logger.Info("Leader election is enabled.")
 		leaderelection.StartLeaderElection(ctx, kubeClient, cfg, logger, cancel, runControllers, leaderelection.Config{
-			LeaseDuration: leaseDuration,
-			RenewDeadline: renewDeadline,
-			RetryPeriod:   retryPeriod,
-			ResourceLock:  resourceLock,
-			ResourceName:  resourceName,
+			LeaseDuration: config.leaseDuration,
+			RenewDeadline: config.renewDeadline,
+			RetryPeriod:   config.retryPeriod,
+			ResourceLock:  config.resourceLock,
+			ResourceName:  config.resourceName,
 		})
 	} else {
 		logger.Info("Leader election is disabled.")
