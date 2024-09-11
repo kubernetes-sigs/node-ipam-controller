@@ -36,7 +36,7 @@ jobs:
         echo "image:" $REGISTRY/$IMAGE_NAME:ci-e2e-test
         docker save --output _output/node-ipam-controller-image.tar $REGISTRY/$IMAGE_NAME:ci-e2e-test
 
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: test-image
         path: _output/node-ipam-controller-image.tar
@@ -92,7 +92,7 @@ jobs:
         EOF
         /usr/local/bin/kind get kubeconfig --name ${{ env.KIND_CLUSTER_NAME}} > _artifacts/kubeconfig.conf
 
-    - uses: actions/download-artifact@v3
+    - uses: actions/download-artifact@v4.1.7
       with:
         name: test-image
 
@@ -174,7 +174,7 @@ jobs:
 
     - name: Upload Junit Reports
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: kind-junit-nodeipam-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: './_artifacts/*.xml'
@@ -186,7 +186,7 @@ jobs:
 
     - name: Upload logs
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: kind-logs-nodeipam-e2e-${{ github.run_id }}-${{ matrix.ipFamily }}
         path: ./_artifacts/logs
