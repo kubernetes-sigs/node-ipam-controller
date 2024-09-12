@@ -174,12 +174,19 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		clusterCIDR, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 
-		clusterCIDR.Spec.NodeSelector = nodeSelector(map[string][]string{"ipv4": {"false"}, "ipv6": {"false"}})
-		clusterCIDR.Spec.PerNodeHostBits = int32(9)
-		clusterCIDR.Spec.IPv4 = "10.10.0.0/23"
-		clusterCIDR.Spec.IPv6 = "fd00:30:101::/119"
+		// wait until creation is done and the finalizer is set.
+		gomega.Eventually(komega.Object(clusterCIDR)).Should(gomega.WithTransform(func(c *v1.ClusterCIDR) []string {
+			return c.GetFinalizers()
+		}, gomega.ContainElement(clusterCIDRFinalizer)))
 
-		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Update(ctx, clusterCIDR, metav1.UpdateOptions{})
+		updated := clusterCIDR.DeepCopy()
+
+		updated.Spec.NodeSelector = nodeSelector(map[string][]string{"ipv4": {"false"}, "ipv6": {"false"}})
+		updated.Spec.PerNodeHostBits = int32(9)
+		updated.Spec.IPv4 = "10.10.0.0/23"
+		updated.Spec.IPv6 = "fd00:30:101::/119"
+
+		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Update(ctx, updated, metav1.UpdateOptions{})
 
 		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("NodeSelector cannot be changed.")))
 		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("PerNodeHostBits cannot be changed.")))

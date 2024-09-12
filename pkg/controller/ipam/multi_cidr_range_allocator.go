@@ -396,7 +396,7 @@ func (r *multiCIDRRangeAllocator) processNextCIDRWorkItem(ctx context.Context) b
 		// Finally, if no error occurs we Forget this item so it does not
 		// get cidrQueued again until another change happens.
 		r.cidrQueue.Forget(obj)
-		logger.Info("Successfully synced", "key", key)
+		logger.Info("Successfully synced cidr", "key", key)
 		return nil
 	}(ctx, obj)
 	if err != nil {
@@ -454,7 +454,7 @@ func (r *multiCIDRRangeAllocator) processNextNodeWorkItem(ctx context.Context) b
 		// Finally, if no error occurs we Forget this item so it does not
 		// get nodeQueue again until another change happens.
 		r.nodeQueue.Forget(obj)
-		logger.Info("Successfully synced", "key", key)
+		logger.Info("Successfully synced node", "key", key)
 		return nil
 	}(klog.FromContext(ctx), obj)
 	if err != nil {

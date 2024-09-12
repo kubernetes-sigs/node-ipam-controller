@@ -36,7 +36,15 @@ var (
 
 func TestAPIs(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "Node IPAM Controller Suite")
+	// ginkgo only prints test names and output when either tests failed or when ginkgo run with -ginkgo.v (verbose).
+	// When running test with `go test -v ./... -ginkgo.v` each package is built and run as a separate binary, hence
+	// for all other packages but node-ipam-controller/pkg/controller/ipam the flag `-ginkgo.v` is unknown, which lead
+	// to error "flag provided but not defined: -ginkgo.v".
+	// To work it around the following two lines set verbosity manually, so the output contains test names (and log
+	// messages from the controller).
+	suiteCfg, repCfg := ginkgo.GinkgoConfiguration()
+	repCfg.Verbose = true
+	ginkgo.RunSpecs(t, "Node IPAM Controller Suite", suiteCfg, repCfg)
 }
 
 var _ = ginkgo.BeforeSuite(func() {
