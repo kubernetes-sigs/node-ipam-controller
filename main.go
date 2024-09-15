@@ -25,13 +25,13 @@ import (
 	"os"
 	"time"
 
-	"github.com/jessevdk/go-flags"
 	"k8s.io/client-go/tools/clientcmd"
 	"k8s.io/component-base/logs"
 
 	"sigs.k8s.io/node-ipam-controller/pkg/leaderelection"
 	"sigs.k8s.io/node-ipam-controller/pkg/signals"
 
+	"github.com/jessevdk/go-flags"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeinformers "k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
@@ -48,7 +48,7 @@ import (
 	"k8s.io/klog/v2"
 )
 
-type Config struct {
+type config struct {
 	ApiServerURL         string        `long:"apiserver" description:"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster." env:"IPAM_API_SERVER_URL"`
 	Kubeconfig           string        `long:"kubeconfig" description:"Path to a kubeconfig. Only required if out-of-cluster." env:"IPAM_KUBECONFIG"`
 	HealthProbeAddr      string        `long:"health-probe-address" default:":8081" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
@@ -60,7 +60,7 @@ type Config struct {
 	ResourceName         string        `long:"leader-elect-resource-name" default:"node-ipam-controller" description:"The name of the resource object that is used for locking." env:"IPAM_RESOURCE_NAME"`
 }
 
-func (c *Config) Load() error {
+func (c *config) load() error {
 	// allows using true/false in the parameters
 	_, err := flags.NewParser(c, flags.Default|flags.AllowBoolValues).ParseArgs(os.Args)
 	if err != nil {
@@ -73,15 +73,18 @@ func main() {
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
 
-	config := Config{EnableLeaderElection: true}
-	err := config.Load()
+	conf := config{EnableLeaderElection: true}
+	err := conf.load()
 	if err != nil {
 		var flagError *flags.Error
-		errors.As(err, &flagError)
-		if flagError.Type == flags.ErrHelp {
-			os.Exit(0)
+		if errors.As(err, &flagError) {
+			if flagError.Type == flags.ErrHelp {
+				os.Exit(0)
+			}
+			os.Exit(1)
 		}
-		os.Exit(22)
+		fmt.Fprintf(os.Stderr, "unable to parse config: %q", err)
+		os.Exit(1)
 	}
 
 	logs.InitLogs()
@@ -89,12 +92,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		os.Exit(1)
 	}
+
 	ctx, cancel := context.WithCancel(signals.SetupSignalHandler())
 	defer cancel()
 	logger := klog.FromContext(ctx)
 
-	server := startHealthProbeServer(config.HealthProbeAddr, logger)
-	cfg, err := clientcmd.BuildConfigFromFlags(config.ApiServerURL, config.Kubeconfig)
+	server := startHealthProbeServer(conf.HealthProbeAddr, logger)
+	cfg, err := clientcmd.BuildConfigFromFlags(conf.ApiServerURL, conf.Kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
@@ -106,14 +110,14 @@ func main() {
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	if config.EnableLeaderElection {
+	if conf.EnableLeaderElection {
 		logger.Info("Leader election is enabled.")
 		leaderelection.StartLeaderElection(ctx, kubeClient, cfg, logger, cancel, runControllers, leaderelection.Config{
-			LeaseDuration: config.LeaseDuration,
-			RenewDeadline: config.RenewDeadline,
-			RetryPeriod:   config.RetryPeriod,
-			ResourceLock:  config.ResourceLock,
-			ResourceName:  config.ResourceName,
+			LeaseDuration: conf.LeaseDuration,
+			RenewDeadline: conf.RenewDeadline,
+			RetryPeriod:   conf.RetryPeriod,
+			ResourceLock:  conf.ResourceLock,
+			ResourceName:  conf.ResourceName,
 		})
 	} else {
 		logger.Info("Leader election is disabled.")

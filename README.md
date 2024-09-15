@@ -7,15 +7,17 @@ The ipam-controller is configured via CRDs
 
 ## Config
 
-* `apiserver` - The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster. (Env: `IPAM_API_SERVER_URL`)
-* `kubeconfig` - Path to a kubeconfig. Only required if out-of-cluster. (Env: `IPAM_KUBECONFIG`)
-* `health-probe-address` - Specifies the TCP address for the health server to listen on. (Env: `IPAM_HEALTH_PROBE_ADDR`)
-* `enable-leader-election` - Enable leader election for the controller manager. Ensures there is only one active controller manager. (Env: `IPAM_ENABLE_LEADER_ELECTION`)
-* `leader-elect-lease-duration` - Duration that non-leader candidates will wait to force acquire leadership (duration string). (Env: `IPAM_LEASE_DURATION`)
-* `leader-elect-renew-deadline` - Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string). (Env: `IPAM_RENEW_DEADLINE`)
-* `leader-elect-retry-period` - Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string). (Env: `IPAM_RESOURCE_LOCK`)
-* `leader-elect-resource-lock` - The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'. (Env: `IPAM_RESOURCE_LOCK_NAME`)
-* `leader-elect-resource-name` - The name of the resource object that is used for locking. (Env: `IPAM_RESOURCE_NAME`)
+| Command line                | Environment                 | Default               | Description                                                                                                          |
+|-----------------------------|-----------------------------|-----------------------|----------------------------------------------------------------------------------------------------------------------|
+| apiserver                   | IPAM_API_SERVER_URL         |                       | The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.        |
+| kubeconfig                  | IPAM_KUBECONFIG             |                       | Path to a kubeconfig. Only required if out-of-cluster.                                                               |
+| health-probe-address        | IPAM_HEALTH_PROBE_ADDR      | :8081                 | Specifies the TCP address for the health server to listen on.                                                        |
+| enable-leader-election      | IPAM_ENABLE_LEADER_ELECTION | true                  | Enable leader election for the controller manager. Ensures there is only one active controller manager.              |
+| leader-elect-lease-duration | IPAM_LEASE_DURATION         | 15s                   | Duration that non-leader candidates will wait to force acquire leadership (duration string).                         |
+| leader-elect-renew-deadline | IPAM_RENEW_DEADLINE         | 10s                   | Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string). |
+| leader-elect-retry-period   | IPAM_RESOURCE_LOCK          | 2s                    | Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string).       |
+| leader-elect-resource-lock  | IPAM_RESOURCE_LOCK_NAME     | leases                | The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'.     |
+| leader-elect-resource-name  | IPAM_RESOURCE_NAME          | node-ipam-controller  | The name of the resource object that is used for locking.                                                            |
 
 ## Build
 
