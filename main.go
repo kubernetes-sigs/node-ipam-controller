@@ -60,32 +60,27 @@ type config struct {
 	ResourceName         string        `long:"leader-elect-resource-name" default:"node-ipam-controller" description:"The name of the resource object that is used for locking." env:"IPAM_RESOURCE_NAME"`
 }
 
-func (c *config) load() error {
+func (c *config) mustLoad() {
 	// allows using true/false in the parameters
-	_, err := flags.NewParser(c, flags.Default|flags.AllowBoolValues).ParseArgs(os.Args)
+	_, err := flags.NewParser(c, flags.HelpFlag|flags.PassDoubleDash|flags.AllowBoolValues).ParseArgs(os.Args)
+
 	if err != nil {
-		return err
+		var flagError *flags.Error
+		if errors.As(err, &flagError) && flagError.Type == flags.ErrHelp {
+			fmt.Fprintln(os.Stdout, err)
+			os.Exit(0)
+		}
+		fmt.Fprintf(os.Stderr, "unable to parse config: %q\n", err)
+		os.Exit(1)
 	}
-	return nil
 }
 
 func main() {
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
 
-	conf := config{EnableLeaderElection: true}
-	err := conf.load()
-	if err != nil {
-		var flagError *flags.Error
-		if errors.As(err, &flagError) {
-			if flagError.Type == flags.ErrHelp {
-				os.Exit(0)
-			}
-			os.Exit(1)
-		}
-		fmt.Fprintf(os.Stderr, "unable to parse config: %q", err)
-		os.Exit(1)
-	}
+	conf := config{}
+	conf.mustLoad()
 
 	logs.InitLogs()
 	if err := logsapi.ValidateAndApply(c, nil); err != nil {
