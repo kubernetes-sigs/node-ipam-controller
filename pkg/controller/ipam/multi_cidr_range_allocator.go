@@ -1154,13 +1154,13 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 	if updatedClusterCIDR.ResourceVersion == "" {
 		// Create is only used for creating default ClusterCIDR.
 		if _, err := r.networkClient.Create(ctx, updatedClusterCIDR, metav1.CreateOptions{}); err != nil {
-			logger.V(2).Info("Error creating ClusterCIDR", "clusterCIDR", klog.KObj(clusterCIDR), "err", err)
+			logger.V(2).Info("failed to create ClusterCIDR", "clusterCIDR", klog.KObj(clusterCIDR), "err", err)
 			return err
 		}
 	} else {
 		// Update the ClusterCIDR object when called from reconcileCreate.
 		if _, err := r.networkClient.Update(ctx, updatedClusterCIDR, metav1.UpdateOptions{}); err != nil {
-			logger.V(2).Info("Error creating ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
+			logger.V(2).Info("failed to update ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
 			return err
 		}
 	}
