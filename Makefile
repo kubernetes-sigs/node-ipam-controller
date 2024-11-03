@@ -87,7 +87,6 @@ manifests: ## Generate CustomResourceDefinition objects.
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	go mod download k8s.io/code-generator
 	./hack/update-codegen.sh
-	go generate ./...
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
