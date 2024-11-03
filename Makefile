@@ -87,7 +87,6 @@ manifests: ## Generate CustomResourceDefinition objects.
 generate: ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations.
 	go mod download k8s.io/code-generator
 	./hack/update-codegen.sh
-$(CONTROLLER_GEN) object:headerFile="hack/boilerplate.go.txt" paths="./..."
 
 .PHONY: fmt
 fmt: ## Run go fmt against code.
