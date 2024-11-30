@@ -17,73 +17,60 @@ limitations under the License.
 package multicidrset
 
 import (
-	"sync"
-
-	"k8s.io/component-base/metrics"
-	"k8s.io/component-base/metrics/legacyregistry"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 const nodeIpamSubsystem = "node_ipam_controller"
 
 var (
-	cidrSetAllocations = metrics.NewCounterVec(
-		&metrics.CounterOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "multicidrset_cidrs_allocations_total",
-			Help:           "Counter measuring total number of CIDR allocations.",
-			StabilityLevel: metrics.ALPHA,
+	cidrSetAllocations = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: nodeIpamSubsystem,
+			Name:      "multicidrset_cidrs_allocations_total",
+			Help:      "Counter measuring total number of CIDR allocations.",
 		},
 		[]string{"clusterCIDR"},
 	)
-	cidrSetReleases = metrics.NewCounterVec(
-		&metrics.CounterOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "multicidrset_cidrs_releases_total",
-			Help:           "Counter measuring total number of CIDR releases.",
-			StabilityLevel: metrics.ALPHA,
+	cidrSetReleases = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Subsystem: nodeIpamSubsystem,
+			Name:      "multicidrset_cidrs_releases_total",
+			Help:      "Counter measuring total number of CIDR releases.",
 		},
 		[]string{"clusterCIDR"},
 	)
 	// This is a gauge, as in theory, a limit can increase or decrease.
-	cidrSetMaxCidrs = metrics.NewGaugeVec(
-		&metrics.GaugeOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "multicirdset_max_cidrs",
-			Help:           "Maximum number of CIDRs that can be allocated.",
-			StabilityLevel: metrics.ALPHA,
+	cidrSetMaxCidrs = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: nodeIpamSubsystem,
+			Name:      "multicirdset_max_cidrs",
+			Help:      "Maximum number of CIDRs that can be allocated.",
 		},
 		[]string{"clusterCIDR"},
 	)
-	cidrSetUsage = metrics.NewGaugeVec(
-		&metrics.GaugeOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "multicidrset_usage_cidrs",
-			Help:           "Gauge measuring percentage of allocated CIDRs.",
-			StabilityLevel: metrics.ALPHA,
+	cidrSetUsage = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Subsystem: nodeIpamSubsystem,
+			Name:      "multicidrset_usage_cidrs",
+			Help:      "Gauge measuring percentage of allocated CIDRs.",
 		},
 		[]string{"clusterCIDR"},
 	)
-	cidrSetAllocationTriesPerRequest = metrics.NewHistogramVec(
-		&metrics.HistogramOpts{
-			Subsystem:      nodeIpamSubsystem,
-			Name:           "multicidrset_allocation_tries_per_request",
-			Help:           "Histogram measuring CIDR allocation tries per request.",
-			StabilityLevel: metrics.ALPHA,
-			Buckets:        metrics.ExponentialBuckets(1, 5, 5),
+	cidrSetAllocationTriesPerRequest = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Subsystem: nodeIpamSubsystem,
+			Name:      "multicidrset_allocation_tries_per_request",
+			Help:      "Histogram measuring CIDR allocation tries per request.",
+			Buckets:   prometheus.ExponentialBuckets(1, 5, 5),
 		},
 		[]string{"clusterCIDR"},
 	)
 )
 
-var registerMetrics sync.Once
-
-// registerCidrsetMetrics the metrics that are to be monitored.
-func registerCidrsetMetrics() {
-	registerMetrics.Do(func() {
-		legacyregistry.MustRegister(cidrSetAllocations)
-		legacyregistry.MustRegister(cidrSetReleases)
-		legacyregistry.MustRegister(cidrSetMaxCidrs)
-		legacyregistry.MustRegister(cidrSetUsage)
-		legacyregistry.MustRegister(cidrSetAllocationTriesPerRequest)
-	})
+func init() {
+	prometheus.MustRegister(cidrSetAllocations)
+	prometheus.MustRegister(cidrSetReleases)
+	prometheus.MustRegister(cidrSetMaxCidrs)
+	prometheus.MustRegister(cidrSetUsage)
+	prometheus.MustRegister(cidrSetAllocationTriesPerRequest)
 }
