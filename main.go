@@ -21,7 +21,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"net/http"
 	"os"
 	"time"
 
@@ -30,6 +29,7 @@ import (
 
 	"sigs.k8s.io/node-ipam-controller/pkg/leaderelection"
 	"sigs.k8s.io/node-ipam-controller/pkg/signals"
+	"sigs.k8s.io/node-ipam-controller/pkg/util/server"
 
 	"github.com/jessevdk/go-flags"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -37,6 +37,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	logsapi "k8s.io/component-base/logs/api/v1"
+
 	clientset "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
 	informers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions"
 	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam"
@@ -52,6 +53,7 @@ type config struct {
 	ApiServerURL         string        `long:"apiserver" description:"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster." env:"IPAM_API_SERVER_URL"`
 	Kubeconfig           string        `long:"kubeconfig" description:"Path to a kubeconfig. Only required if out-of-cluster." env:"IPAM_KUBECONFIG"`
 	HealthProbeAddr      string        `long:"health-probe-address" default:":8081" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
+	MetricsAddr          string        `long:"metrics-address" default:":9091" description:"Specifies the TCP address for the metric server to listen on." env:"IPAM_METRICS_ADDR"`
 	EnableLeaderElection bool          `long:"enable-leader-election" description:"Enable leader election for the controller manager. Ensures there is only one active controller manager." env:"IPAM_ENABLE_LEADER_ELECTION"`
 	LeaseDuration        time.Duration `long:"leader-elect-lease-duration" default:"15s" description:"Duration that non-leader candidates will wait to force acquire leadership (duration string)." env:"IPAM_LEASE_DURATION"`
 	RenewDeadline        time.Duration `long:"leader-elect-renew-deadline" default:"10s" description:"Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string)." env:"IPAM_RENEW_DEADLINE"`
@@ -97,7 +99,9 @@ func main() {
 	defer cancel()
 	logger := klog.FromContext(ctx)
 
-	server := startHealthProbeServer(conf.HealthProbeAddr, logger)
+	server.StartHealthProbeServer(ctx, conf.HealthProbeAddr)
+	server.StartMetricsServer(ctx, conf.MetricsAddr)
+
 	cfg, err := clientcmd.BuildConfigFromFlags(conf.ApiServerURL, conf.Kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
@@ -122,10 +126,6 @@ func main() {
 	} else {
 		logger.Info("Leader election is disabled.")
 		runControllers(ctx, kubeClient, cfg, logger)
-	}
-
-	if err := server.Shutdown(ctx); err != nil {
-		logger.Error(err, "failed to shut down health server")
 	}
 }
 
@@ -165,39 +165,4 @@ func runControllers(ctx context.Context, kubeClient kubernetes.Interface, cfg *r
 	sharedInformerFactory.Start(ctx.Done())
 
 	nodeIpamController.Run(ctx)
-}
-
-// startHealthProbeServer starts a web server that has two endpoints `/readyz` and `/healthz` and always responds
-// 200 OK.
-func startHealthProbeServer(addr string, logger klog.Logger) *http.Server {
-	const defaultTimeout = 30 * time.Second
-	mux := http.NewServeMux()
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  defaultTimeout,
-		WriteTimeout: defaultTimeout,
-		IdleTimeout:  defaultTimeout,
-	}
-
-	mux.Handle("/readyz", makeHealthHandler())
-	mux.Handle("/healthz", makeHealthHandler())
-
-	go func() {
-		err := server.ListenAndServe()
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error(err, "an error occurred after stopping the health server")
-		}
-	}()
-
-	return server
-}
-
-// makeHealthHandler returns 200/OK when healthy.
-func makeHealthHandler() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
-
-		w.WriteHeader(http.StatusOK)
-	}
 }
