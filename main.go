@@ -50,10 +50,11 @@ import (
 )
 
 type config struct {
-	ApiServerURL         string        `long:"apiserver" description:"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster." env:"IPAM_API_SERVER_URL"`
-	Kubeconfig           string        `long:"kubeconfig" description:"Path to a kubeconfig. Only required if out-of-cluster." env:"IPAM_KUBECONFIG"`
-	HealthProbeAddr      string        `long:"health-probe-address" default:":8081" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
-	MetricsAddr          string        `long:"metrics-address" default:":9091" description:"Specifies the TCP address for the metric server to listen on." env:"IPAM_METRICS_ADDR"`
+	ApiServerURL string `long:"apiserver" description:"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster." env:"IPAM_API_SERVER_URL"`
+	Kubeconfig   string `long:"kubeconfig" description:"Path to a kubeconfig. Only required if out-of-cluster." env:"IPAM_KUBECONFIG"`
+	// deprecated, use BindingAddr. Will be removed in future release.
+	HealthProbeAddr      string        `long:"health-probe-address" default:"" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
+	WebserverBindAddr    string        `long:"webserver-bind-address" default:":8081" description:"Specifies the TCP address for the probes and metric server to listen on." env:"IPAM_WEBSERVER_BIND_ADDR"`
 	EnableLeaderElection bool          `long:"enable-leader-election" description:"Enable leader election for the controller manager. Ensures there is only one active controller manager." env:"IPAM_ENABLE_LEADER_ELECTION"`
 	LeaseDuration        time.Duration `long:"leader-elect-lease-duration" default:"15s" description:"Duration that non-leader candidates will wait to force acquire leadership (duration string)." env:"IPAM_LEASE_DURATION"`
 	RenewDeadline        time.Duration `long:"leader-elect-renew-deadline" default:"10s" description:"Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string)." env:"IPAM_RENEW_DEADLINE"`
@@ -99,8 +100,7 @@ func main() {
 	defer cancel()
 	logger := klog.FromContext(ctx)
 
-	server.StartHealthProbeServer(ctx, conf.HealthProbeAddr)
-	server.StartMetricsServer(ctx, conf.MetricsAddr)
+	server.StartWebServer(ctx, bindingAddress(conf))
 
 	cfg, err := clientcmd.BuildConfigFromFlags(conf.ApiServerURL, conf.Kubeconfig)
 	if err != nil {
@@ -165,4 +165,12 @@ func runControllers(ctx context.Context, kubeClient kubernetes.Interface, cfg *r
 	sharedInformerFactory.Start(ctx.Done())
 
 	nodeIpamController.Run(ctx)
+}
+
+func bindingAddress(cfg config) string {
+	if cfg.HealthProbeAddr != "" {
+		return cfg.HealthProbeAddr
+	}
+
+	return cfg.WebserverBindAddr
 }

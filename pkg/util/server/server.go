@@ -15,12 +15,13 @@ import (
 
 const defaultTimeout = 5 * time.Second
 
-// StartHealthProbeServer starts a web server that has two endpoints `/readyz` and `/healthz` and always responds
-// 200 OK.
-func StartHealthProbeServer(ctx context.Context, addr string) {
+// StartWebServer starts a new web server that combines probes and metrics servers and has
+// `/readyz`, `/healthz` endpoints that always respond 200 OK and `/metrics` endpoint.
+func StartWebServer(ctx context.Context, addr string) {
 	mux := http.NewServeMux()
 	mux.Handle("/readyz", makeHealthHandler())
 	mux.Handle("/healthz", makeHealthHandler())
+	mux.Handle("/metrics", promhttp.Handler())
 	server := &http.Server{
 		Addr:         addr,
 		Handler:      mux,
@@ -29,19 +30,19 @@ func StartHealthProbeServer(ctx context.Context, addr string) {
 		IdleTimeout:  defaultTimeout,
 	}
 
-	klog.Infof("Starting health server at %s", addr)
+	klog.Infof("Starting webserver at %s", addr)
 
 	go func() {
 		go utilwait.Until(func() {
 			err := server.ListenAndServe()
 			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				utilruntime.HandleError(fmt.Errorf("starting health server failed: %w", err))
+				utilruntime.HandleError(fmt.Errorf("starting webserver server failed: %w", err))
 			}
 		}, defaultTimeout, ctx.Done())
 
 		<-ctx.Done()
 
-		klog.Infof("Stopping health server %s", server.Addr)
+		klog.Infof("Stopping webserver %s", server.Addr)
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
@@ -57,36 +58,4 @@ func makeHealthHandler() http.HandlerFunc {
 
 		w.WriteHeader(http.StatusOK)
 	}
-}
-
-// StartMetricsServer starts a web server with `/metrics` endpoint.
-func StartMetricsServer(ctx context.Context, addr string) {
-	mux := http.NewServeMux()
-	mux.Handle("/metrics", promhttp.Handler())
-	server := &http.Server{
-		Addr:         addr,
-		Handler:      mux,
-		ReadTimeout:  defaultTimeout,
-		WriteTimeout: defaultTimeout,
-		IdleTimeout:  defaultTimeout,
-	}
-
-	klog.Infof("Starting metrics server at %s", addr)
-
-	go func() {
-		go utilwait.Until(func() {
-			err := server.ListenAndServe()
-			if err != nil && !errors.Is(err, http.ErrServerClosed) {
-				utilruntime.HandleError(fmt.Errorf("starting metrics server failed: %w", err))
-			}
-		}, defaultTimeout, ctx.Done())
-
-		<-ctx.Done()
-		klog.Infof("Stopping metrics server %s", server.Addr)
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), defaultTimeout)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			klog.Errorf("Error stopping metrics server: %v", err)
-		}
-	}()
 }

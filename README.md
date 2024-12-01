@@ -1,6 +1,7 @@
 # node-ipam-controller
 
-Out of tree implementation of https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/2593-multiple-cluster-cidrs
+Out of tree implementation
+of https://github.com/kubernetes/enhancements/tree/master/keps/sig-network/2593-multiple-cluster-cidrs
 
 It allows users to use an ipam-controller that allocates IP ranges to Nodes, setting the node.spec.PodCIDRs fields.
 The ipam-controller is configured via CRDs
@@ -11,8 +12,7 @@ The ipam-controller is configured via CRDs
 |-----------------------------|-----------------------------|----------------------|----------------------------------------------------------------------------------------------------------------------|
 | apiserver                   | IPAM_API_SERVER_URL         |                      | The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster.        |
 | kubeconfig                  | IPAM_KUBECONFIG             |                      | Path to a kubeconfig. Only required if out-of-cluster.                                                               |
-| health-probe-address        | IPAM_HEALTH_PROBE_ADDR      | :8081                | Specifies the TCP address for the health server to listen on.                                                        |
-| metrics-address             | IPAM_METRICS_ADDR           | :9091                | Specifies the TCP address for the metric server to listen on.                                                        |
+| webserver-bind-address      | IPAM_WEBSERVER_BIND_ADDR    | :8081                | Specifies the TCP address for the probes and metric server to listen on.                                             |
 | enable-leader-election      | IPAM_ENABLE_LEADER_ELECTION | true                 | Enable leader election for the controller manager. Ensures there is only one active controller manager.              |
 | leader-elect-lease-duration | IPAM_LEASE_DURATION         | 15s                  | Duration that non-leader candidates will wait to force acquire leadership (duration string).                         |
 | leader-elect-renew-deadline | IPAM_RENEW_DEADLINE         | 10s                  | Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string). |
@@ -42,7 +42,7 @@ Create a Kind cluster with disabled Node CIDRs allocation:
 kind create cluster --config hack/test/kind/kind-cfg.yaml
 ```
 
-Install ClusterCIDR CRD and configure node-ipam-controller to use dual mode (See the [examples](examples) folder for 
+Install ClusterCIDR CRD and configure node-ipam-controller to use dual mode (See the [examples](examples) folder for
 more examples):
 
 ```sh
@@ -56,7 +56,8 @@ Run the controller outside the cluster by specifying Kind cluster kubeconfig:
 ./bin/manager --kubeconfig="$HOME"/.kube/config
 ```
 
-To run the controller inside the cluster, a Docker image must first be loaded into a registry accessible within the Kind cluster.
+To run the controller inside the cluster, a Docker image must first be loaded into a registry accessible within the Kind
+cluster.
 
 ```sh
 docker build -t registry.k8s.io/node-ipam-controller/node-ipam-controller:local -f Dockerfile .
@@ -64,7 +65,8 @@ docker save --output node-ipam-controller.tar registry.k8s.io/node-ipam-controll
 kind load docker-image registry.k8s.io/node-ipam-controller/node-ipam-controller:local
 ```
 
-Check Kind [documentation](https://kind.sigs.k8s.io/docs/user/local-registry/) on how to use local container image registry.
+Check Kind [documentation](https://kind.sigs.k8s.io/docs/user/local-registry/) on how to use local container image
+registry.
 
 Install node-ipam-controller in the cluster via helm:
 
