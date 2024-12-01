@@ -924,23 +924,23 @@ func expectMetrics(t *testing.T, label string, em testMetrics) {
 	var err error
 	m.usage, err = testutil.GetGaugeMetricValue(cidrSetUsage.WithLabelValues(label))
 	if err != nil {
-		t.Errorf("failed to get %s value, err: %v", cidrSetUsage.Name, err)
+		t.Errorf("failed to get cidr usage value, err: %v", err)
 	}
 	m.allocs, err = testutil.GetCounterMetricValue(cidrSetAllocations.WithLabelValues(label))
 	if err != nil {
-		t.Errorf("failed to get %s value, err: %v", cidrSetAllocations.Name, err)
+		t.Errorf("failed to get cidr allocations value, err: %v", err)
 	}
 	m.releases, err = testutil.GetCounterMetricValue(cidrSetReleases.WithLabelValues(label))
 	if err != nil {
-		t.Errorf("failed to get %s value, err: %v", cidrSetReleases.Name, err)
+		t.Errorf("failed to get cidr releases value, err: %v", err)
 	}
 	m.allocTries, err = testutil.GetHistogramMetricValue(cidrSetAllocationTriesPerRequest.WithLabelValues(label))
 	if err != nil {
-		t.Errorf("failed to get %s value, err: %v", cidrSetAllocationTriesPerRequest.Name, err)
+		t.Errorf("failed to get cidr allocation tries value, err: %v", err)
 	}
 	m.max, err = testutil.GetGaugeMetricValue(cidrSetMaxCidrs.WithLabelValues(label))
 	if err != nil {
-		t.Errorf("failed to get %s value, err: %v", cidrSetMaxCidrs.Name, err)
+		t.Errorf("failed to get max cidrs value, err: %v", err)
 	}
 
 	if m != em {
