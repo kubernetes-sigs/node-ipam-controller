@@ -55,4 +55,4 @@ jobs:
 
       - name: Test
         working-directory: sigs.k8s.io/node-ipam-controller
-        run: make test
+        run: make unit-test

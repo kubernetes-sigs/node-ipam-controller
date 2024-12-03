@@ -98,15 +98,19 @@ lint: ## Run golangci check.
 
 KUBEBUILDER_ASSETS=$(shell go run sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) -p path)
 
-.PHONY: test
-test: manifests generate fmt ## Run tests.
+.PHONY: unit-test
+unit-test: manifests generate fmt ## Run tests.
 	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test -coverprofile cover.out -v ./...
+
+.PHONY: test-charts
+test-charts: ## Lint and test charts.
+	./scripts/test_charts.sh
 
 ##@ Build
 
 .PHONY: build
 build: manifests generate fmt ## Build the binary.
-	${GOENV} go build -o bin/manager -ldflags "$(LDFLAGS)"
+	${GOENV} go build -o bin/node-ipam-controller -ldflags "$(LDFLAGS)"
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
@@ -123,6 +127,7 @@ IMAGE_BUILD_CMD ?= $(DOCKER_BUILDX_CMD) build
 .PHONY: image-build
 image-build:
 	$(IMAGE_BUILD_CMD) -t $(IMG) \
+		$(QUIET_MODE) \
 		--build-arg BASE_IMAGE=$(BASE_IMAGE) \
 		--build-arg BUILDER_IMAGE=$(BUILDER_IMAGE) \
 		--build-arg CGO_ENABLED=$(CGO_ENABLED) \
@@ -141,7 +146,7 @@ image-push: image-build
 # To adequately provide solutions that are compatible with multiple platforms, you should consider using this option.
 PLATFORMS ?= linux/arm64,linux/amd64,linux/s390x,linux/ppc64le
 .PHONY: docker-buildx
-docker-buildx: ## Build and push docker image for the manager for cross-platform support
+docker-buildx: ## Build and push docker image for node-ipam-controller for cross-platform support
 	# copy existing Dockerfile and insert --platform=${BUILDPLATFORM} into Dockerfile.cross, and preserve the original Dockerfile
 	sed -e '1 s/\(^FROM\)/FROM --platform=\$$\{BUILDPLATFORM\}/; t' -e ' 1,// s//FROM --platform=\$$\{BUILDPLATFORM\}/' Dockerfile > Dockerfile.cross
 	- $(CONTAINER_TOOL) buildx create --name project-v3-builder
@@ -149,3 +154,15 @@ docker-buildx: ## Build and push docker image for the manager for cross-platform
 	- $(CONTAINER_TOOL) buildx build --push --platform=$(PLATFORMS) --tag ${IMG} -f Dockerfile.cross .
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
+
+.PHONY: setup-test-env
+setup-test-env: ## Setup test environment
+	./scripts/up.sh
+
+.PHONY: teardown-test-env
+teardown-test-env: ## Teardown test environment.
+	./scripts/down.sh
+
+.PHONY: run
+run: ## Setup test environment and run node-ipam-controller in cluster
+	./scripts/run.sh
