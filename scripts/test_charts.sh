@@ -24,7 +24,7 @@ function test_charts {
       --set=image.tag=${IMG_TAG} \
       --set=imagePullSecrets[0].name=dev-image-pull \
     "
-  if_error_exit "lint and test charts failed"
+  if_error_exit "test charts failed"
 }
 
 trap kind_delete_cluster EXIT

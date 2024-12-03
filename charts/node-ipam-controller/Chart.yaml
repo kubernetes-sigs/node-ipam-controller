@@ -17,4 +17,4 @@ name: node-ipam-controller
 description: A Helm chart for node-ipam-controller
 type: application
 version: 0.0.2
-appVersion: 0.0.2
+appVersion: 0.0.1

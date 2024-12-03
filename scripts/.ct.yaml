@@ -18,3 +18,4 @@ target-branch: main
 check-version-increment: true
 chart-dirs:
   - charts
+helm-extra-args: --timeout 100s
