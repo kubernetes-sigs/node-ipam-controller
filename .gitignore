@@ -31,4 +31,4 @@ go.work
 *~
 .envrc
 
-hack/test/kind/local-test-env.yaml
+hack/test/kind/node-ipam-controller-local-test-env.yaml
