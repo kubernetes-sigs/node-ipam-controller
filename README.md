@@ -54,3 +54,11 @@ NOTE: run the controller with leader election disabled (see `IPAM_ENABLE_LEADER_
 ```sh
 make setup-test-env
 ```
+
+## Installation
+
+Install node-ipam-controller via helm:
+
+```sh
+helm install node-ipam-controller ./charts/node-ipam-controller --create-namespace --namespace nodeipam --set image.tag=local
+```
