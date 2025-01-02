@@ -43,7 +43,7 @@ var (
 	cidrSetMaxCidrs = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
 			Subsystem: nodeIpamSubsystem,
-			Name:      "multicirdset_max_cidrs",
+			Name:      "multicidrset_max_cidrs",
 			Help:      "Maximum number of CIDRs that can be allocated.",
 		},
 		[]string{"clusterCIDR"},
