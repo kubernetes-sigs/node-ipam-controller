@@ -103,12 +103,12 @@ func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string
 
 			if testClusterCIDR.ipv4CIDR != "" {
 				_, testCIDR, _ := utilnet.ParseCIDRSloppy(testClusterCIDR.ipv4CIDR)
-				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits))
+				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(clusterCIDR.Name, testCIDR, int(testClusterCIDR.perNodeHostBits))
 				clusterCIDR.IPv4CIDRSet = testCIDRSet
 			}
 			if testClusterCIDR.ipv6CIDR != "" {
 				_, testCIDR, _ := utilnet.ParseCIDRSloppy(testClusterCIDR.ipv6CIDR)
-				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(testCIDR, int(testClusterCIDR.perNodeHostBits))
+				testCIDRSet, _ := multicidrset.NewMultiCIDRSet(clusterCIDR.Name, testCIDR, int(testClusterCIDR.perNodeHostBits))
 				clusterCIDR.IPv6CIDRSet = testCIDRSet
 			}
 			clusterCIDRList = append(clusterCIDRList, clusterCIDR)
