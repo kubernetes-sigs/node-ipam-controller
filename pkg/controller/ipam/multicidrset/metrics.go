@@ -29,7 +29,7 @@ var (
 			Name:      "multicidrset_cidrs_allocations_total",
 			Help:      "Counter measuring total number of CIDR allocations.",
 		},
-		[]string{"clusterCIDR"},
+		[]string{"clusterCIDR", "clusterCIDRName"},
 	)
 	cidrSetReleases = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
@@ -37,7 +37,7 @@ var (
 			Name:      "multicidrset_cidrs_releases_total",
 			Help:      "Counter measuring total number of CIDR releases.",
 		},
-		[]string{"clusterCIDR"},
+		[]string{"clusterCIDR", "clusterCIDRName"},
 	)
 	// This is a gauge, as in theory, a limit can increase or decrease.
 	cidrSetMaxCidrs = prometheus.NewGaugeVec(
@@ -46,7 +46,7 @@ var (
 			Name:      "multicidrset_max_cidrs",
 			Help:      "Maximum number of CIDRs that can be allocated.",
 		},
-		[]string{"clusterCIDR"},
+		[]string{"clusterCIDR", "clusterCIDRName"},
 	)
 	cidrSetUsage = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
@@ -54,7 +54,7 @@ var (
 			Name:      "multicidrset_usage_cidrs",
 			Help:      "Gauge measuring percentage of allocated CIDRs.",
 		},
-		[]string{"clusterCIDR"},
+		[]string{"clusterCIDR", "clusterCIDRName"},
 	)
 	cidrSetAllocationTriesPerRequest = prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
@@ -63,7 +63,7 @@ var (
 			Help:      "Histogram measuring CIDR allocation tries per request.",
 			Buckets:   prometheus.ExponentialBuckets(1, 5, 5),
 		},
-		[]string{"clusterCIDR"},
+		[]string{"clusterCIDR", "clusterCIDRName"},
 	)
 )
 

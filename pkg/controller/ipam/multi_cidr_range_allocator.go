@@ -1181,7 +1181,9 @@ func (r *multiCIDRRangeAllocator) createClusterCIDRSet(clusterCIDR *v1.ClusterCI
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse provided IPv4 CIDR: %w", err)
 		}
-		clusterCIDRSet.IPv4CIDRSet, err = cidrset.NewMultiCIDRSet(ipv4CIDR, int(clusterCIDR.Spec.PerNodeHostBits))
+		clusterCIDRSet.IPv4CIDRSet, err = cidrset.NewMultiCIDRSet(
+			clusterCIDR.Name, ipv4CIDR, int(clusterCIDR.Spec.PerNodeHostBits),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create IPv4 cidrSet: %w", err)
 		}
@@ -1192,7 +1194,9 @@ func (r *multiCIDRRangeAllocator) createClusterCIDRSet(clusterCIDR *v1.ClusterCI
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse provided IPv6 CIDR: %w", err)
 		}
-		clusterCIDRSet.IPv6CIDRSet, err = cidrset.NewMultiCIDRSet(ipv6CIDR, int(clusterCIDR.Spec.PerNodeHostBits))
+		clusterCIDRSet.IPv6CIDRSet, err = cidrset.NewMultiCIDRSet(
+			clusterCIDR.Name, ipv6CIDR, int(clusterCIDR.Spec.PerNodeHostBits),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create IPv6 cidrSet: %w", err)
 		}

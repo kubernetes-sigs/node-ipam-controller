@@ -50,6 +50,8 @@ type MultiCIDRSet struct {
 	// clusterMaskSize is the mask size, in bits, assigned to the cluster.
 	// caches the mask size to avoid the penalty of calling clusterCIDR.Mask.Size().
 	clusterMaskSize int
+	// clusterCIDRName is a name of the ClusterCIDR this set belongs to.
+	clusterCIDRName string
 	// nodeMask is the network mask assigned to the nodes.
 	nodeMask net.IPMask
 	// allocatedCIDRs counts the number of CIDRs allocated.
@@ -112,7 +114,7 @@ func (err *CIDRSetSubNetTooBigErr) Error() string {
 }
 
 // NewMultiCIDRSet creates a new MultiCIDRSet.
-func NewMultiCIDRSet(cidrConfig *net.IPNet, perNodeHostBits int) (*MultiCIDRSet, error) {
+func NewMultiCIDRSet(clusterCIDRName string, cidrConfig *net.IPNet, perNodeHostBits int) (*MultiCIDRSet, error) {
 	clusterMask := cidrConfig.Mask
 	clusterMaskSize, bits := clusterMask.Size()
 
@@ -135,6 +137,7 @@ func NewMultiCIDRSet(cidrConfig *net.IPNet, perNodeHostBits int) (*MultiCIDRSet,
 	maxCIDRs := getMaxCIDRs(subNetMaskSize, clusterMaskSize)
 	multiCIDRSet := &MultiCIDRSet{
 		ClusterCIDR:      cidrConfig,
+		clusterCIDRName:  clusterCIDRName,
 		nodeMask:         net.CIDRMask(subNetMaskSize, bits),
 		clusterMaskSize:  clusterMaskSize,
 		MaxCIDRs:         maxCIDRs,
@@ -142,7 +145,7 @@ func NewMultiCIDRSet(cidrConfig *net.IPNet, perNodeHostBits int) (*MultiCIDRSet,
 		Label:            cidrConfig.String(),
 		AllocatedCIDRMap: make(map[string]bool, 0),
 	}
-	cidrSetMaxCidrs.WithLabelValues(multiCIDRSet.Label).Set(float64(maxCIDRs))
+	cidrSetMaxCidrs.WithLabelValues(multiCIDRSet.Label, clusterCIDRName).Set(float64(maxCIDRs))
 
 	return multiCIDRSet, nil
 }
@@ -287,11 +290,11 @@ func (s *MultiCIDRSet) Release(cidr *net.IPNet) error {
 		if _, ok := s.AllocatedCIDRMap[currCIDR.String()]; ok {
 			delete(s.AllocatedCIDRMap, currCIDR.String())
 			s.allocatedCIDRs--
-			cidrSetReleases.WithLabelValues(s.Label).Inc()
+			cidrSetReleases.WithLabelValues(s.Label, s.clusterCIDRName).Inc()
 		}
 	}
 
-	cidrSetUsage.WithLabelValues(s.Label).Set(float64(s.allocatedCIDRs) / float64(s.MaxCIDRs))
+	cidrSetUsage.WithLabelValues(s.Label, s.clusterCIDRName).Set(float64(s.allocatedCIDRs) / float64(s.MaxCIDRs))
 
 	return nil
 }
@@ -315,11 +318,11 @@ func (s *MultiCIDRSet) Occupy(cidr *net.IPNet) (err error) {
 		}
 		if _, ok := s.AllocatedCIDRMap[currCIDR.String()]; !ok {
 			s.AllocatedCIDRMap[currCIDR.String()] = true
-			cidrSetAllocations.WithLabelValues(s.Label).Inc()
+			cidrSetAllocations.WithLabelValues(s.Label, s.clusterCIDRName).Inc()
 			s.allocatedCIDRs++
 		}
 	}
-	cidrSetUsage.WithLabelValues(s.Label).Set(float64(s.allocatedCIDRs) / float64(s.MaxCIDRs))
+	cidrSetUsage.WithLabelValues(s.Label, s.clusterCIDRName).Set(float64(s.allocatedCIDRs) / float64(s.MaxCIDRs))
 
 	return nil
 }
@@ -348,7 +351,7 @@ func (s *MultiCIDRSet) getIndexForIP(ip net.IP) (int, error) {
 
 // UpdateEvaluatedCount increments the evaluated count.
 func (s *MultiCIDRSet) UpdateEvaluatedCount(evaluated int) {
-	cidrSetAllocationTriesPerRequest.WithLabelValues(s.Label).Observe(float64(evaluated))
+	cidrSetAllocationTriesPerRequest.WithLabelValues(s.Label, s.clusterCIDRName).Observe(float64(evaluated))
 }
 
 // getMaxCIDRs returns the max number of CIDRs that can be obtained by subdividing a mask of size `clusterMaskSize`
