@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"math"
 	"net"
+	"reflect"
 	"slices"
 	"sync"
 	"time"
@@ -234,6 +235,10 @@ func NewMultiCIDRRangeAllocator(
 			}
 		},
 		UpdateFunc: func(old, new interface{}) {
+			if reflect.DeepEqual(old, new) {
+				return
+			}
+
 			key, err := cache.MetaNamespaceKeyFunc(new)
 			if err == nil {
 				ra.cidrQueue.Add(key)
