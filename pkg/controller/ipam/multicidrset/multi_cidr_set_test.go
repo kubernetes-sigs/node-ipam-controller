@@ -59,7 +59,7 @@ func TestCIDRSetFullyAllocated(t *testing.T) {
 	}
 	for _, tc := range cases {
 		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
-		a, err := NewMultiCIDRSet(clusterCIDR, tc.perNodeHostBits)
+		a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
 		if err != nil {
 			t.Fatalf("unexpected error: %v for %v", err, tc.description)
 		}
@@ -210,7 +210,7 @@ func TestIndexToCIDRBlock(t *testing.T) {
 	}
 	for _, tc := range cases {
 		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
-		a, err := NewMultiCIDRSet(clusterCIDR, tc.perNodeHostBits)
+		a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
 		if err != nil {
 			t.Fatalf("error for %v ", tc.description)
 		}
@@ -240,7 +240,7 @@ func TestCIDRSet_RandomishAllocation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
-		a, err := NewMultiCIDRSet(clusterCIDR, 8)
+		a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
 		if err != nil {
 			t.Fatalf("Error allocating CIDRSet for %v", tc.description)
 		}
@@ -300,7 +300,7 @@ func TestCIDRSet_AllocationOccupied(t *testing.T) {
 	}
 	for _, tc := range cases {
 		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
-		a, err := NewMultiCIDRSet(clusterCIDR, 8)
+		a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
 		if err != nil {
 			t.Fatalf("Error allocating CIDRSet for %v", tc.description)
 		}
@@ -412,7 +412,7 @@ func TestDoubleOccupyRelease(t *testing.T) {
 	numAllocatable24s := (1 << 8) - 3
 
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(clusterCIDRStr)
-	a, err := NewMultiCIDRSet(clusterCIDR, 8)
+	a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
 	if err != nil {
 		t.Fatalf("Error allocating CIDRSet")
 	}
@@ -575,7 +575,7 @@ func TestGetBitforCIDR(t *testing.T) {
 			t.Fatalf("unexpected error: %v for %v", err, tc.description)
 		}
 
-		cs, err := NewMultiCIDRSet(clusterCIDR, tc.perNodeHostBits)
+		cs, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
 		if err != nil {
 			t.Fatalf("Error allocating CIDRSet for %v", tc.description)
 		}
@@ -636,7 +636,7 @@ func TestCIDRSetv6(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.description, func(t *testing.T) {
 			_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
-			a, err := NewMultiCIDRSet(clusterCIDR, tc.perNodeHostBits)
+			a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
 			if gotErr := err != nil; gotErr != tc.expectErr {
 				t.Fatalf("NewMultiCIDRSet(%v, %v) = %v, %v; gotErr = %t, want %t", clusterCIDR, tc.perNodeHostBits, a, err, gotErr, tc.expectErr)
 			}
@@ -677,7 +677,7 @@ func TestMultiCIDRSetMetrics(t *testing.T) {
 	clearMetrics(map[string]string{"clusterCIDR": cidr})
 
 	// We have 256 free cidrs
-	a, err := NewMultiCIDRSet(clusterCIDR, 8)
+	a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
 	if err != nil {
 		t.Fatalf("unexpected error creating MultiCIDRSet: %v", err)
 	}
@@ -734,10 +734,10 @@ func TestMultiCIDRSetMetrics(t *testing.T) {
 func TestMultiCIDRSetMetricsHistogram(t *testing.T) {
 	cidr := "10.0.0.0/16"
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(cidr)
-	clearMetrics(map[string]string{"clusterCIDR": cidr})
+	clearMetrics(map[string]string{"clusterCIDR": cidr, "clusterCIDRName": "test-cluster-cidr"})
 
 	// We have 256 free cidrs.
-	a, err := NewMultiCIDRSet(clusterCIDR, 8)
+	a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
 	if err != nil {
 		t.Fatalf("unexpected error creating MultiCIDRSet: %v", err)
 	}
@@ -783,9 +783,9 @@ func TestMultiCIDRSetMetricsDual(t *testing.T) {
 	// create IPv4 cidrSet.
 	cidrIPv4 := "10.0.0.0/16"
 	_, clusterCIDRv4, _ := utilnet.ParseCIDRSloppy(cidrIPv4)
-	clearMetrics(map[string]string{"clusterCIDR": cidrIPv4})
+	clearMetrics(map[string]string{"clusterCIDR": cidrIPv4, "clusterCIDRName": "test-cluster-cidr"})
 
-	a, err := NewMultiCIDRSet(clusterCIDRv4, 8)
+	a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDRv4, 8)
 	if err != nil {
 		t.Fatalf("unexpected error creating MultiCIDRSet: %v", err)
 	}
@@ -804,9 +804,9 @@ func TestMultiCIDRSetMetricsDual(t *testing.T) {
 	// create IPv6 cidrSet.
 	cidrIPv6 := "2001:db8::/48"
 	_, clusterCIDRv6, _ := utilnet.ParseCIDRSloppy(cidrIPv6)
-	clearMetrics(map[string]string{"clusterCIDR": cidrIPv6})
+	clearMetrics(map[string]string{"clusterCIDR": cidrIPv6, "clusterCIDRName": "test-cluster-cidr"})
 
-	b, err := NewMultiCIDRSet(clusterCIDRv6, 64)
+	b, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDRv6, 64)
 	if err != nil {
 		t.Fatalf("unexpected error creating MultiCIDRSet: %v", err)
 	}
@@ -922,23 +922,25 @@ type testMetrics struct {
 func expectMetrics(t *testing.T, label string, em testMetrics) {
 	var m testMetrics
 	var err error
-	m.usage, err = testutil.GetGaugeMetricValue(cidrSetUsage.WithLabelValues(label))
+	m.usage, err = testutil.GetGaugeMetricValue(cidrSetUsage.WithLabelValues(label, "test-cluster-cidr"))
 	if err != nil {
 		t.Errorf("failed to get cidr usage value, err: %v", err)
 	}
-	m.allocs, err = testutil.GetCounterMetricValue(cidrSetAllocations.WithLabelValues(label))
+	m.allocs, err = testutil.GetCounterMetricValue(cidrSetAllocations.WithLabelValues(label, "test-cluster-cidr"))
 	if err != nil {
 		t.Errorf("failed to get cidr allocations value, err: %v", err)
 	}
-	m.releases, err = testutil.GetCounterMetricValue(cidrSetReleases.WithLabelValues(label))
+	m.releases, err = testutil.GetCounterMetricValue(cidrSetReleases.WithLabelValues(label, "test-cluster-cidr"))
 	if err != nil {
 		t.Errorf("failed to get cidr releases value, err: %v", err)
 	}
-	m.allocTries, err = testutil.GetHistogramMetricValue(cidrSetAllocationTriesPerRequest.WithLabelValues(label))
+	m.allocTries, err = testutil.GetHistogramMetricValue(
+		cidrSetAllocationTriesPerRequest.WithLabelValues(label, "test-cluster-cidr"),
+	)
 	if err != nil {
 		t.Errorf("failed to get cidr allocation tries value, err: %v", err)
 	}
-	m.max, err = testutil.GetGaugeMetricValue(cidrSetMaxCidrs.WithLabelValues(label))
+	m.max, err = testutil.GetGaugeMetricValue(cidrSetMaxCidrs.WithLabelValues(label, "test-cluster-cidr"))
 	if err != nil {
 		t.Errorf("failed to get max cidrs value, err: %v", err)
 	}
@@ -951,7 +953,7 @@ func expectMetrics(t *testing.T, label string, em testMetrics) {
 // Benchmarks
 func benchmarkAllocateAllIPv6(cidr string, perNodeHostBits int, b *testing.B) {
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(cidr)
-	a, _ := NewMultiCIDRSet(clusterCIDR, perNodeHostBits)
+	a, _ := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, perNodeHostBits)
 	for n := 0; n < b.N; n++ {
 		// Allocate the whole range + 1.
 		for i := 0; i <= a.MaxCIDRs; i++ {

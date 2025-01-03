@@ -154,7 +154,7 @@ func TestLess(t *testing.T) {
 
 func createTestPriorityQueueItem(name, cidr, selectorString string, labelMatchCount, perNodeHostBits int) *PriorityQueueItem {
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(cidr)
-	cidrSet, _ := multicidrset.NewMultiCIDRSet(clusterCIDR, perNodeHostBits)
+	cidrSet, _ := multicidrset.NewMultiCIDRSet(name, clusterCIDR, perNodeHostBits)
 
 	return &PriorityQueueItem{
 		clusterCIDR: &multicidrset.ClusterCIDR{
