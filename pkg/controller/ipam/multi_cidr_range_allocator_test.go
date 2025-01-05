@@ -1693,6 +1693,7 @@ func TestClusterCIDRDefault(t *testing.T) {
 	createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), defaultClusterCIDRName, metav1.GetOptions{})
 	assert.Nil(t, err, "Expected no error getting clustercidr objects")
 	assert.Equal(t, defaultCCC.Spec, createdCCC.Spec)
+	assert.Contains(t, createdCCC.GetFinalizers(), clusterCIDRFinalizer)
 }
 
 // Ensure SyncClusterCIDR creates a new valid ClusterCIDR.
@@ -1772,19 +1773,23 @@ func TestSyncClusterCIDRCreate(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)
 	for _, tc := range tests {
-		cccController.clusterCIDRStore.Add(tc.ccc)
-		err := cccController.syncClusterCIDR(ctx, tc.ccc.Name)
-		if tc.wantErr {
-			assert.Error(t, err)
-			continue
-		}
-		assert.NoError(t, err)
-		expectActions(t, client.Actions(), 1, "create", "clustercidrs")
+		t.Run(tc.name, func(t *testing.T) {
+			cccController.clusterCIDRStore.Add(tc.ccc)
+			err := cccController.syncClusterCIDR(ctx, tc.ccc.Name)
 
-		createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), tc.ccc.Name, metav1.GetOptions{})
-		require.NoError(t, err, "Expected no error getting clustercidr object")
-		assert.Equal(t, tc.ccc.Spec, createdCCC.Spec)
-		assert.Equal(t, []string{clusterCIDRFinalizer}, createdCCC.Finalizers)
+			if tc.wantErr {
+				assert.Error(t, err)
+				return
+			}
+
+			assert.NoError(t, err)
+			expectActions(t, client.Actions(), 1, "create", "clustercidrs")
+
+			createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), tc.ccc.Name, metav1.GetOptions{})
+			require.NoError(t, err, "Expected no error getting clustercidr object")
+			assert.Equal(t, tc.ccc.Spec, createdCCC.Spec)
+			assert.Equal(t, []string{clusterCIDRFinalizer}, createdCCC.Finalizers)
+		})
 	}
 }
 
