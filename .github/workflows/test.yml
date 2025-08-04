@@ -30,15 +30,15 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
           cache: false
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v8
         with:
-          version: v1.54
+          version: v2.1
 
   test:
     name: Run Tests
@@ -49,7 +49,7 @@ jobs:
           path: sigs.k8s.io/node-ipam-controller
 
       - name: Setup Go
-        uses: actions/setup-go@v4
+        uses: actions/setup-go@v5
         with:
           go-version-file: sigs.k8s.io/node-ipam-controller/go.mod
 

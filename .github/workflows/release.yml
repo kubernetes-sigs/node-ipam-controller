@@ -48,7 +48,7 @@ jobs:
 
       - name: Generate docker metadata
         id: docker_meta
-        uses: docker/metadata-action@v4
+        uses: docker/metadata-action@v5
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -57,7 +57,7 @@ jobs:
             type=semver,pattern={{version}}
 
       - name: Build and Push
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
