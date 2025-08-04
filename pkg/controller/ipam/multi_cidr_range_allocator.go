@@ -772,7 +772,7 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 
 		// If we reached here, it means that the node has no CIDR currently assigned. So we set it.
 		for i := 0; i < cidrUpdateRetries; i++ {
-			if err = nodeutil.PatchNodeCIDRs(r.client, types.NodeName(node.Name), cidrsString); err == nil {
+			if err = nodeutil.PatchNodeCIDRs(context.Background(), r.client, types.NodeName(node.Name), cidrsString); err == nil {
 				data.clusterCIDR.AssociatedNodes[node.Name] = true
 				logger.Info("Set node PodCIDR", "node", klog.KObj(node), "podCIDR", cidrsString)
 				return nil

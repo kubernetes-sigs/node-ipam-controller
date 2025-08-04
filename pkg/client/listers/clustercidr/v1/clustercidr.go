@@ -19,10 +19,10 @@ limitations under the License.
 package v1
 
 import (
-	"k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/client-go/tools/cache"
-	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	labels "k8s.io/apimachinery/pkg/labels"
+	listers "k8s.io/client-go/listers"
+	cache "k8s.io/client-go/tools/cache"
+	clustercidrv1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 )
 
 // ClusterCIDRLister helps list ClusterCIDRs.
@@ -30,39 +30,19 @@ import (
 type ClusterCIDRLister interface {
 	// List lists all ClusterCIDRs in the indexer.
 	// Objects returned here must be treated as read-only.
-	List(selector labels.Selector) (ret []*v1.ClusterCIDR, err error)
+	List(selector labels.Selector) (ret []*clustercidrv1.ClusterCIDR, err error)
 	// Get retrieves the ClusterCIDR from the index for a given name.
 	// Objects returned here must be treated as read-only.
-	Get(name string) (*v1.ClusterCIDR, error)
+	Get(name string) (*clustercidrv1.ClusterCIDR, error)
 	ClusterCIDRListerExpansion
 }
 
 // clusterCIDRLister implements the ClusterCIDRLister interface.
 type clusterCIDRLister struct {
-	indexer cache.Indexer
+	listers.ResourceIndexer[*clustercidrv1.ClusterCIDR]
 }
 
 // NewClusterCIDRLister returns a new ClusterCIDRLister.
 func NewClusterCIDRLister(indexer cache.Indexer) ClusterCIDRLister {
-	return &clusterCIDRLister{indexer: indexer}
-}
-
-// List lists all ClusterCIDRs in the indexer.
-func (s *clusterCIDRLister) List(selector labels.Selector) (ret []*v1.ClusterCIDR, err error) {
-	err = cache.ListAll(s.indexer, selector, func(m interface{}) {
-		ret = append(ret, m.(*v1.ClusterCIDR))
-	})
-	return ret, err
-}
-
-// Get retrieves the ClusterCIDR from the index for a given name.
-func (s *clusterCIDRLister) Get(name string) (*v1.ClusterCIDR, error) {
-	obj, exists, err := s.indexer.GetByKey(name)
-	if err != nil {
-		return nil, err
-	}
-	if !exists {
-		return nil, errors.NewNotFound(v1.Resource("clustercidr"), name)
-	}
-	return obj.(*v1.ClusterCIDR), nil
+	return &clusterCIDRLister{listers.New[*clustercidrv1.ClusterCIDR](indexer, clustercidrv1.Resource("clustercidr"))}
 }

@@ -29,7 +29,7 @@ type FakeNetworkingV1 struct {
 }
 
 func (c *FakeNetworkingV1) ClusterCIDRs() v1.ClusterCIDRInterface {
-	return &FakeClusterCIDRs{c}
+	return newFakeClusterCIDRs(c)
 }
 
 // RESTClient returns a RESTClient that is used to communicate
