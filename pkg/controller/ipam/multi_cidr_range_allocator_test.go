@@ -1645,9 +1645,9 @@ func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMCo
 	client.PrependReactor("create", "clustercidrs", func(action k8stesting.Action) (bool, runtime.Object, error) {
 		clusterCIDR := action.(k8stesting.CreateAction).GetObject().(*v1.ClusterCIDR)
 
-		if clusterCIDR.ObjectMeta.GenerateName != "" {
-			clusterCIDR.ObjectMeta.Name = fmt.Sprintf("%s-%s", clusterCIDR.ObjectMeta.GenerateName, rand.String(8))
-			clusterCIDR.ObjectMeta.GenerateName = ""
+		if clusterCIDR.GenerateName != "" {
+			clusterCIDR.Name = fmt.Sprintf("%s-%s", clusterCIDR.GenerateName, rand.String(8))
+			clusterCIDR.GenerateName = ""
 		}
 		clusterCIDR.Generation = 1
 		cccIndexer.Add(clusterCIDR)
