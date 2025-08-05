@@ -1133,7 +1133,7 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 	// Make a copy so we don't mutate the shared informer cache.
 	updatedClusterCIDR := clusterCIDR.DeepCopy()
 	if needToAddFinalizer(clusterCIDR, clusterCIDRFinalizer) {
-		updatedClusterCIDR.ObjectMeta.Finalizers = append(clusterCIDR.ObjectMeta.Finalizers, clusterCIDRFinalizer) //nolint
+		updatedClusterCIDR.Finalizers = append(updatedClusterCIDR.Finalizers, clusterCIDRFinalizer)
 	}
 
 	logger := klog.FromContext(ctx)
