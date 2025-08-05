@@ -19,10 +19,10 @@ package validation
 import (
 	"testing"
 
-	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
-
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 )
 
 func makeNodeSelector(key string, op corev1.NodeSelectorOperator, values []string) *corev1.NodeSelector {

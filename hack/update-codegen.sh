@@ -31,13 +31,12 @@ ln -s .. sigs.k8s.io
 trap "rm sigs.k8s.io" EXIT
 
 kube::codegen::gen_helpers \
-    --input-pkg-root sigs.k8s.io/node-ipam-controller/pkg/apis \
-    --output-base "${PROJECT_ROOT}" \
-    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
+    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt" \
+    "${PROJECT_ROOT}"
 
 kube::codegen::gen_client \
     --with-watch \
-    --input-pkg-root sigs.k8s.io/node-ipam-controller/pkg/apis \
-    --output-pkg-root sigs.k8s.io/node-ipam-controller/pkg/client \
-    --output-base "${PROJECT_ROOT}" \
-    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt"
+    --output-pkg "sigs.k8s.io/node-ipam-controller/pkg/client" \
+    --output-dir "${PROJECT_ROOT}/pkg/client" \
+    --boilerplate "${PROJECT_ROOT}/hack/boilerplate.go.txt" \
+    "${PROJECT_ROOT}/pkg/apis"

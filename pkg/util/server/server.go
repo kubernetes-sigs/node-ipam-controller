@@ -54,7 +54,7 @@ func StartWebServer(ctx context.Context, addr string) {
 // makeHealthHandler returns 200/OK when healthy.
 func makeHealthHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		defer r.Body.Close()
+		defer r.Body.Close() //nolint: errcheck
 
 		w.WriteHeader(http.StatusOK)
 	}

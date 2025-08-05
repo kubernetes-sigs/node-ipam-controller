@@ -94,7 +94,7 @@ fmt: ## Run go fmt against code.
 
 .PHONY: lint
 lint: ## Run golangci check.
-	go run github.com/golangci/golangci-lint/cmd/golangci-lint run
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint run
 
 KUBEBUILDER_ASSETS=$(shell go run sigs.k8s.io/controller-runtime/tools/setup-envtest use $(ENVTEST_K8S_VERSION) -p path)
 

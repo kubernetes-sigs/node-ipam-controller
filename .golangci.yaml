@@ -11,49 +11,47 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+---
+version: "2"
+run:
+  timeout: 4m
 
 linters:
-  disable-all: true
-  enable:
-    - asciicheck
-    - bodyclose
-    - durationcheck
-    - errcheck
-    - errorlint
-    - exportloopref
-    - gocritic
-    - gofmt
-    - gosimple
-    - govet
-    - ineffassign
-    - megacheck
-    - misspell
-    - nakedret
-    - nilerr
-    - nosprintfhostport
-    - staticcheck
-    - typecheck
-    - unconvert
-    - unparam
-    - unused
-    - whitespace
-linters-settings:
-  golint:
-    min-confidence: 0
-issues:
-  max-same-issues: 0
-  exclude-rules:
+  exclusions:
+    paths:
+    - pkg/client
+    rules:
     - path: _test.*\.go
       text: dot-imports
       linters:
-        - revive
+      - revive
     - path: _test.*\.go
       linters:
-        - bodyclose
-        - typecheck
-        - errcheck
-        - unparam
-run:
-  skip-dirs:
-    - pkg/client
-  timeout: 4m
+      - bodyclose
+      - errcheck
+      - unparam
+  default: none
+  enable:
+  - asciicheck
+  - bodyclose
+  - durationcheck
+  - errcheck
+  - errorlint
+  - gocritic
+  - govet
+  - ineffassign
+  - misspell
+  - nakedret
+  - nilerr
+  - nosprintfhostport
+  - staticcheck
+  - unconvert
+  - unparam
+  - unused
+  - whitespace
+formatters:
+  enable:
+  - gofmt
+  - goimports
+issues:
+  max-same-issues: 0

@@ -145,7 +145,9 @@ type multiCIDRRangeAllocator struct {
 	recorder              record.EventRecorder
 	// queues are where incoming work is placed to de-dup and to allow "easy"
 	// rate limited requeues on errors
+	//nolint:staticcheck
 	cidrQueue workqueue.RateLimitingInterface
+	//nolint:staticcheck
 	nodeQueue workqueue.RateLimitingInterface
 
 	// lock guards cidrMap to avoid races in CIDR allocation.
@@ -194,7 +196,9 @@ func NewMultiCIDRRangeAllocator(
 		broadcaster:           eventBroadcaster,
 		recorder:              recorder,
 		// todo(mneverov): Use NewRateLimitingQueueWithConfig instead.
+		//nolint: staticcheck
 		cidrQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multi_cidr_range_allocator_cidr"),
+		//nolint: staticcheck
 		nodeQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multi_cidr_range_allocator_node"),
 		lock:      &sync.Mutex{},
 		cidrMap:   make(map[string][]*cidrset.ClusterCIDR, 0),
@@ -772,7 +776,7 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 
 		// If we reached here, it means that the node has no CIDR currently assigned. So we set it.
 		for i := 0; i < cidrUpdateRetries; i++ {
-			if err = nodeutil.PatchNodeCIDRs(r.client, types.NodeName(node.Name), cidrsString); err == nil {
+			if err = nodeutil.PatchNodeCIDRs(context.Background(), r.client, types.NodeName(node.Name), cidrsString); err == nil {
 				data.clusterCIDR.AssociatedNodes[node.Name] = true
 				logger.Info("Set node PodCIDR", "node", klog.KObj(node), "podCIDR", cidrsString)
 				return nil
@@ -1000,7 +1004,7 @@ func (r *multiCIDRRangeAllocator) matchCIDRLabels(node *corev1.Node, label strin
 	}
 	reqs, selectable := ls.Requirements()
 
-	labelSet = node.ObjectMeta.Labels
+	labelSet = node.Labels
 	if selectable {
 		matchCnt = 0
 		for _, req := range reqs {
@@ -1052,10 +1056,7 @@ func createDefaultClusterCIDR(logger klog.Logger, existingConfigList *v1.Cluster
 
 	ipv4PerNodeHostBits := int32(math.MinInt32)
 	ipv6PerNodeHostBits := int32(math.MinInt32)
-	isDualstack := false
-	if len(allocatorParams.ClusterCIDRs) == 2 {
-		isDualstack = true
-	}
+	isDualstack := len(allocatorParams.ClusterCIDRs) == 2
 
 	for i, cidr := range allocatorParams.ClusterCIDRs {
 		if netutil.IsIPv4CIDR(cidr) {
@@ -1244,7 +1245,7 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 		}
 		// Remove the finalizer as delete is successful.
 		cccCopy := clusterCIDR.DeepCopy()
-		cccCopy.ObjectMeta.Finalizers = slice.RemoveString(cccCopy.ObjectMeta.Finalizers, clusterCIDRFinalizer, nil)
+		cccCopy.Finalizers = slice.RemoveString(cccCopy.Finalizers, clusterCIDRFinalizer, nil)
 		if _, err := r.networkClient.Update(ctx, cccCopy, metav1.UpdateOptions{}); err != nil {
 			logger.V(2).Info("Error removing finalizer for ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
 			return err

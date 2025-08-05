@@ -19,24 +19,24 @@ limitations under the License.
 package v1
 
 import (
-	"context"
+	context "context"
 	time "time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
-	clustercidrv1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	apisclustercidrv1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 	versioned "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned"
 	internalinterfaces "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/internalinterfaces"
-	v1 "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
+	clustercidrv1 "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
 )
 
 // ClusterCIDRInformer provides access to a shared informer and lister for
 // ClusterCIDRs.
 type ClusterCIDRInformer interface {
 	Informer() cache.SharedIndexInformer
-	Lister() v1.ClusterCIDRLister
+	Lister() clustercidrv1.ClusterCIDRLister
 }
 
 type clusterCIDRInformer struct {
@@ -61,16 +61,28 @@ func NewFilteredClusterCIDRInformer(client versioned.Interface, resyncPeriod tim
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1().ClusterCIDRs().List(context.TODO(), options)
+				return client.NetworkingV1().ClusterCIDRs().List(context.Background(), options)
 			},
 			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
 				}
-				return client.NetworkingV1().ClusterCIDRs().Watch(context.TODO(), options)
+				return client.NetworkingV1().ClusterCIDRs().Watch(context.Background(), options)
+			},
+			ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.NetworkingV1().ClusterCIDRs().List(ctx, options)
+			},
+			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
+				if tweakListOptions != nil {
+					tweakListOptions(&options)
+				}
+				return client.NetworkingV1().ClusterCIDRs().Watch(ctx, options)
 			},
 		},
-		&clustercidrv1.ClusterCIDR{},
+		&apisclustercidrv1.ClusterCIDR{},
 		resyncPeriod,
 		indexers,
 	)
@@ -81,9 +93,9 @@ func (f *clusterCIDRInformer) defaultInformer(client versioned.Interface, resync
 }
 
 func (f *clusterCIDRInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&clustercidrv1.ClusterCIDR{}, f.defaultInformer)
+	return f.factory.InformerFor(&apisclustercidrv1.ClusterCIDR{}, f.defaultInformer)
 }
 
-func (f *clusterCIDRInformer) Lister() v1.ClusterCIDRLister {
-	return v1.NewClusterCIDRLister(f.Informer().GetIndexer())
+func (f *clusterCIDRInformer) Lister() clustercidrv1.ClusterCIDRLister {
+	return clustercidrv1.NewClusterCIDRLister(f.Informer().GetIndexer())
 }

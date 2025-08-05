@@ -16,14 +16,14 @@ package validation
 import (
 	"fmt"
 
-	"sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
-
 	corev1 "k8s.io/api/core/v1"
 	apimachineryvalidation "k8s.io/apimachinery/pkg/api/validation"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	unversionedvalidation "k8s.io/apimachinery/pkg/apis/meta/v1/validation"
 	"k8s.io/apimachinery/pkg/util/validation/field"
 	netutils "k8s.io/utils/net"
+
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
 )
 
 var (
