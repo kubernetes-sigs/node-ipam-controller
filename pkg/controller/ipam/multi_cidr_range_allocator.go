@@ -145,10 +145,8 @@ type multiCIDRRangeAllocator struct {
 	recorder              record.EventRecorder
 	// queues are where incoming work is placed to de-dup and to allow "easy"
 	// rate limited requeues on errors
-	//nolint:staticcheck
-	cidrQueue workqueue.RateLimitingInterface
-	//nolint:staticcheck
-	nodeQueue workqueue.RateLimitingInterface
+	cidrQueue workqueue.TypedRateLimitingInterface[string]
+	nodeQueue workqueue.TypedRateLimitingInterface[string]
 
 	// lock guards cidrMap to avoid races in CIDR allocation.
 	lock *sync.Mutex
@@ -195,13 +193,16 @@ func NewMultiCIDRRangeAllocator(
 		nodeCIDRUpdateChannel: make(chan multiCIDRNodeReservedCIDRs, cidrUpdateQueueSize),
 		broadcaster:           eventBroadcaster,
 		recorder:              recorder,
-		// todo(mneverov): Use NewRateLimitingQueueWithConfig instead.
-		//nolint: staticcheck
-		cidrQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multi_cidr_range_allocator_cidr"),
-		//nolint: staticcheck
-		nodeQueue: workqueue.NewNamedRateLimitingQueue(workqueue.DefaultControllerRateLimiter(), "multi_cidr_range_allocator_node"),
-		lock:      &sync.Mutex{},
-		cidrMap:   make(map[string][]*cidrset.ClusterCIDR, 0),
+		cidrQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[string](),
+			workqueue.TypedRateLimitingQueueConfig[string]{Name: "multi_cidr_range_allocator_cidr"},
+		),
+		nodeQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
+			workqueue.DefaultTypedControllerRateLimiter[string](),
+			workqueue.TypedRateLimitingQueueConfig[string]{Name: "multi_cidr_range_allocator_node"},
+		),
+		lock:    &sync.Mutex{},
+		cidrMap: make(map[string][]*cidrset.ClusterCIDR, 0),
 	}
 
 	// testCIDRMap is only set for testing purposes.
@@ -367,35 +368,25 @@ func (r *multiCIDRRangeAllocator) runCIDRWorker(ctx context.Context) {
 // attempt to process it, by calling the syncHandler.
 func (r *multiCIDRRangeAllocator) processNextCIDRWorkItem(ctx context.Context) bool {
 	logger := klog.FromContext(ctx)
-	obj, shutdown := r.cidrQueue.Get()
+	key, shutdown := r.cidrQueue.Get()
 	if shutdown {
 		return false
 	}
 
 	// We wrap this block in a func so we can defer c.cidrQueue.Done.
-	err := func(ctx context.Context, obj interface{}) error {
+	err := func(ctx context.Context, key string) error {
 		// We call Done here so the cidrQueue knows we have finished
 		// processing this item. We also must remember to call Forget if we
 		// do not want this work item being re-queued. For example, we do
 		// not call Forget if a transient error occurs, instead the item is
 		// put back on the cidrQueue and attempted again after a back-off
 		// period.
-		defer r.cidrQueue.Done(obj)
-		var key string
-		var ok bool
+		defer r.cidrQueue.Done(key)
 		// We expect strings to come off the cidrQueue. These are of the
 		// form namespace/name. We do this as the delayed nature of the
 		// cidrQueue means the items in the informer cache may actually be
 		// more up to date that when the item was initially put onto the
 		// cidrQueue.
-		if key, ok = obj.(string); !ok {
-			// As the item in the cidrQueue is actually invalid, we call
-			// Forget here else we'd go into a loop of attempting to
-			// process a work item that is invalid.
-			r.cidrQueue.Forget(obj)
-			utilruntime.HandleError(fmt.Errorf("expected string in cidrQueue but got %#v", obj))
-			return nil
-		}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// Foo resource to be synced.
 		if err := r.syncClusterCIDR(ctx, key); err != nil {
@@ -405,10 +396,10 @@ func (r *multiCIDRRangeAllocator) processNextCIDRWorkItem(ctx context.Context) b
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get cidrQueued again until another change happens.
-		r.cidrQueue.Forget(obj)
+		r.cidrQueue.Forget(key)
 		logger.Info("Successfully synced cidr", "key", key)
 		return nil
-	}(ctx, obj)
+	}(ctx, key)
 	if err != nil {
 		utilruntime.HandleError(err)
 		return true
@@ -425,35 +416,25 @@ func (r *multiCIDRRangeAllocator) runNodeWorker(ctx context.Context) {
 // processNextWorkItem will read a single work item off the cidrQueue and
 // attempt to process it, by calling the syncHandler.
 func (r *multiCIDRRangeAllocator) processNextNodeWorkItem(ctx context.Context) bool {
-	obj, shutdown := r.nodeQueue.Get()
+	key, shutdown := r.nodeQueue.Get()
 	if shutdown {
 		return false
 	}
 
 	// We wrap this block in a func so we can defer c.cidrQueue.Done.
-	err := func(logger klog.Logger, obj interface{}) error {
+	err := func(logger klog.Logger, key string) error {
 		// We call Done here so the workNodeQueue knows we have finished
 		// processing this item. We also must remember to call Forget if we
 		// do not want this work item being re-queued. For example, we do
 		// not call Forget if a transient error occurs, instead the item is
 		// put back on the nodeQueue and attempted again after a back-off
 		// period.
-		defer r.nodeQueue.Done(obj)
-		var key string
-		var ok bool
+		defer r.nodeQueue.Done(key)
 		// We expect strings to come off the workNodeQueue. These are of the
 		// form namespace/name. We do this as the delayed nature of the
 		// workNodeQueue means the items in the informer cache may actually be
 		// more up to date that when the item was initially put onto the
 		// workNodeQueue.
-		if key, ok = obj.(string); !ok {
-			// As the item in the workNodeQueue is actually invalid, we call
-			// Forget here else we'd go into a loop of attempting to
-			// process a work item that is invalid.
-			r.nodeQueue.Forget(obj)
-			utilruntime.HandleError(fmt.Errorf("expected string in workNodeQueue but got %#v", obj))
-			return nil
-		}
 		// Run the syncHandler, passing it the namespace/name string of the
 		// Foo resource to be synced.
 		if err := r.syncNode(logger, key); err != nil {
@@ -463,10 +444,10 @@ func (r *multiCIDRRangeAllocator) processNextNodeWorkItem(ctx context.Context) b
 		}
 		// Finally, if no error occurs we Forget this item so it does not
 		// get nodeQueue again until another change happens.
-		r.nodeQueue.Forget(obj)
+		r.nodeQueue.Forget(key)
 		logger.Info("Successfully synced node", "key", key)
 		return nil
-	}(klog.FromContext(ctx), obj)
+	}(klog.FromContext(ctx), key)
 	if err != nil {
 		utilruntime.HandleError(err)
 		return true
