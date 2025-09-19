@@ -21,32 +21,32 @@ import (
 	"time"
 
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/leaderelection"
 	"k8s.io/client-go/tools/leaderelection/resourcelock"
+	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 )
 
 // Config holds the configuration parameters for leader election
 type Config struct {
-	LeaseDuration time.Duration
-	RenewDeadline time.Duration
-	RetryPeriod   time.Duration
-	ResourceLock  string
-	ResourceName  string
+	EnableLeaderElection    bool          `long:"enable-leader-election" description:"Enable leader election for the controller manager. Ensures there is only one active controller manager." env:"IPAM_ENABLE_LEADER_ELECTION"`
+	LeaderElectionID        string        `long:"leader-elect-id" description:"The name of the resource that leader election will use for holding the leader lock." env:"IPAM_LEADER_ELECT_ID"`
+	LeaderElectionNamespace string        `long:"leader-elect-namespace" description:"The namespace in which the leader election resource will be created." env:"IPAM_LEADER_ELECT_NAMESPACE"`
+	LeaseDuration           time.Duration `long:"leader-elect-lease-duration" default:"15s" description:"Duration that non-leader candidates will wait to force acquire leadership (duration string)." env:"IPAM_LEASE_DURATION"`
+	RenewDeadline           time.Duration `long:"leader-elect-renew-deadline" default:"10s" description:"Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string)." env:"IPAM_RENEW_DEADLINE"`
+	RetryPeriod             time.Duration `long:"leader-elect-retry-period" default:"2s" description:"Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string)." env:"IPAM_LEADER_ELECT_RETRY_PERIOD"`
+	ResourceLock            string        `long:"leader-elect-resource-lock" default:"leases" description:"The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'." env:"IPAM_RESOURCE_LOCK_NAME"`
+	ResourceName            string        `long:"leader-elect-resource-name" default:"node-ipam-controller" description:"The name of the resource object that is used for locking." env:"IPAM_RESOURCE_NAME"`
 }
 
 // StartLeaderElection starts the leader election process
-func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger, cancel context.CancelFunc, runFunc func(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger), config Config) {
-	id := os.Getenv("POD_NAME")
-	if id == "" {
-		klog.Fatalf("POD_NAME environment variable not set")
-	}
-
-	namespace := os.Getenv("POD_NAMESPACE")
-	if namespace == "" {
-		klog.Fatalf("POD_NAMESPACE environment variable not set")
-	}
+func StartLeaderElection(
+	ctx context.Context, kubeClient kubernetes.Interface, config Config,
+	cancel context.CancelFunc, runFunc func(context.Context),
+) {
+	id := lockID(config.LeaderElectionID)
+	namespace := lockNamespace(config.LeaderElectionNamespace)
+	klog.Infof("leader election id: %s, namespace: %s", id, namespace)
 
 	rl, err := resourcelock.New(
 		config.ResourceLock,
@@ -71,7 +71,7 @@ func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, c
 		Callbacks: leaderelection.LeaderCallbacks{
 			OnStartedLeading: func(ctx context.Context) {
 				klog.Infof("Started leading as %s", id)
-				runFunc(ctx, kubeClient, cfg, logger)
+				runFunc(ctx)
 			},
 			OnStoppedLeading: func() {
 				klog.Infof("%s stopped leading", id)
@@ -87,4 +87,31 @@ func StartLeaderElection(ctx context.Context, kubeClient kubernetes.Interface, c
 			},
 		},
 	})
+}
+
+func lockID(leaderElectionID string) string {
+	if len(leaderElectionID) > 0 {
+		return leaderElectionID
+	}
+
+	id := os.Getenv("POD_NAME")
+	hostname, err := nodeutil.GetHostname(id)
+	if err != nil {
+		klog.Fatalf("failed to get leader election id: %s", err)
+	}
+	id = hostname
+
+	return id
+}
+
+func lockNamespace(leaderElectionNamespace string) string {
+	if len(leaderElectionNamespace) > 0 {
+		return leaderElectionNamespace
+	}
+	ns := os.Getenv("POD_NAMESPACE")
+	if ns == "" {
+		klog.Fatalf("leader election namespace should be provided")
+	}
+
+	return ns
 }

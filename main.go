@@ -53,14 +53,9 @@ type config struct {
 	ApiServerURL string `long:"apiserver" description:"The address of the Kubernetes API server. Overrides any value in kubeconfig. Only required if out-of-cluster." env:"IPAM_API_SERVER_URL"`
 	Kubeconfig   string `long:"kubeconfig" description:"Path to a kubeconfig. Only required if out-of-cluster." env:"IPAM_KUBECONFIG"`
 	// deprecated, use BindingAddr. Will be removed in future release.
-	HealthProbeAddr      string        `long:"health-probe-address" default:"" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
-	WebserverBindAddr    string        `long:"webserver-bind-address" default:":8081" description:"Specifies the TCP address for the probes and metric server to listen on." env:"IPAM_WEBSERVER_BIND_ADDR"`
-	EnableLeaderElection bool          `long:"enable-leader-election" description:"Enable leader election for the controller manager. Ensures there is only one active controller manager." env:"IPAM_ENABLE_LEADER_ELECTION"`
-	LeaseDuration        time.Duration `long:"leader-elect-lease-duration" default:"15s" description:"Duration that non-leader candidates will wait to force acquire leadership (duration string)." env:"IPAM_LEASE_DURATION"`
-	RenewDeadline        time.Duration `long:"leader-elect-renew-deadline" default:"10s" description:"Interval between attempts by the acting master to renew a leadership slot before it stops leading (duration string)." env:"IPAM_RENEW_DEADLINE"`
-	RetryPeriod          time.Duration `long:"leader-elect-retry-period" default:"2s" description:"Duration the clients should wait between attempting acquisition and renewal of a leadership (duration string)." env:"IPAM_RESOURCE_LOCK"`
-	ResourceLock         string        `long:"leader-elect-resource-lock" default:"leases" description:"The type of resource object that is used for locking. Supported options are 'leases', 'endpoints', 'configmaps'." env:"IPAM_RESOURCE_LOCK_NAME"`
-	ResourceName         string        `long:"leader-elect-resource-name" default:"node-ipam-controller" description:"The name of the resource object that is used for locking." env:"IPAM_RESOURCE_NAME"`
+	HealthProbeAddr   string `long:"health-probe-address" default:"" description:"Specifies the TCP address for the health server to listen on." env:"IPAM_HEALTH_PROBE_ADDR"`
+	WebserverBindAddr string `long:"webserver-bind-address" default:":8081" description:"Specifies the TCP address for the probes and metric server to listen on." env:"IPAM_WEBSERVER_BIND_ADDR"`
+	LeaderElectionCfg leaderelection.Config
 }
 
 func (c *config) load() error {
@@ -76,8 +71,10 @@ func main() {
 	c := logsapi.NewLoggingConfiguration()
 	logsapi.AddGoFlags(c, flag.CommandLine)
 
-	conf := config{EnableLeaderElection: true}
-	err := conf.load()
+	nodeIpamCfg := config{LeaderElectionCfg: leaderelection.Config{
+		EnableLeaderElection: true,
+	}}
+	err := nodeIpamCfg.load()
 	if err != nil {
 		var flagError *flags.Error
 		if errors.As(err, &flagError) {
@@ -100,71 +97,71 @@ func main() {
 	defer cancel()
 	logger := klog.FromContext(ctx)
 
-	server.StartWebServer(ctx, bindingAddress(conf))
+	server.StartWebServer(ctx, bindingAddress(nodeIpamCfg))
 
-	cfg, err := clientcmd.BuildConfigFromFlags(conf.ApiServerURL, conf.Kubeconfig)
+	kubeClientCfg, err := clientcmd.BuildConfigFromFlags(nodeIpamCfg.ApiServerURL, nodeIpamCfg.Kubeconfig)
 	if err != nil {
 		logger.Error(err, "failed to build kubeconfig")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	kubeClient, err := kubernetes.NewForConfig(cfg)
+	kubeClient, err := kubernetes.NewForConfig(kubeClientCfg)
 	if err != nil {
 		logger.Error(err, "failed to build kubernetes clientset")
 		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
 	}
 
-	if conf.EnableLeaderElection {
+	if nodeIpamCfg.LeaderElectionCfg.EnableLeaderElection {
 		logger.Info("Leader election is enabled.")
-		leaderelection.StartLeaderElection(ctx, kubeClient, cfg, logger, cancel, runControllers, leaderelection.Config{
-			LeaseDuration: conf.LeaseDuration,
-			RenewDeadline: conf.RenewDeadline,
-			RetryPeriod:   conf.RetryPeriod,
-			ResourceLock:  conf.ResourceLock,
-			ResourceName:  conf.ResourceName,
-		})
+		leaderelection.StartLeaderElection(
+			ctx, kubeClient, nodeIpamCfg.LeaderElectionCfg, cancel, runControllers(kubeClient, kubeClientCfg),
+		)
 	} else {
 		logger.Info("Leader election is disabled.")
-		runControllers(ctx, kubeClient, cfg, logger)
+		runControllers(kubeClient, kubeClientCfg)(ctx)
 	}
 }
 
-func runControllers(ctx context.Context, kubeClient kubernetes.Interface, cfg *rest.Config, logger klog.Logger) {
-	cidrClient, err := clientset.NewForConfig(cfg)
-	if err != nil {
-		logger.Error(err, "failed to build kubernetes clientset")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+// runControllers creates a function that starts Node Ipam Controller.
+func runControllers(kubeClient kubernetes.Interface, cfg *rest.Config) func(context.Context) {
+	return func(ctx context.Context) {
+		logger := klog.FromContext(ctx)
+		cidrClient, err := clientset.NewForConfig(cfg)
+		if err != nil {
+			logger.Error(err, "failed to build kubernetes clientset")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+
+		const defaultResync = 30 * time.Second
+		kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, defaultResync)
+		sharedInformerFactory := informers.NewSharedInformerFactory(cidrClient, defaultResync)
+
+		nodes, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+		if err != nil {
+			logger.Error(err, "failed to list existing nodes")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+
+		nodeIpamController, err := ipam.NewMultiCIDRRangeAllocator(
+			ctx,
+			kubeClient,
+			cidrClient.NetworkingV1().ClusterCIDRs(),
+			kubeInformerFactory.Core().V1().Nodes(),
+			sharedInformerFactory.Networking().V1().ClusterCIDRs(),
+			ipam.CIDRAllocatorParams{},
+			nodes,
+			nil,
+		)
+		if err != nil {
+			logger.Error(err, "failed to create Node IPAM controller")
+			klog.FlushAndExit(klog.ExitFlushTimeout, 1)
+		}
+
+		kubeInformerFactory.Start(ctx.Done())
+		sharedInformerFactory.Start(ctx.Done())
+
+		nodeIpamController.Run(ctx)
 	}
-
-	const defaultResync = 30 * time.Second
-	kubeInformerFactory := kubeinformers.NewSharedInformerFactory(kubeClient, defaultResync)
-	sharedInformerFactory := informers.NewSharedInformerFactory(cidrClient, defaultResync)
-
-	nodes, err := kubeClient.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-	if err != nil {
-		logger.Error(err, "failed to list existing nodes")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}
-
-	nodeIpamController, err := ipam.NewMultiCIDRRangeAllocator(
-		ctx,
-		kubeClient,
-		cidrClient.NetworkingV1().ClusterCIDRs(),
-		kubeInformerFactory.Core().V1().Nodes(),
-		sharedInformerFactory.Networking().V1().ClusterCIDRs(),
-		ipam.CIDRAllocatorParams{},
-		nodes,
-		nil,
-	)
-	if err != nil {
-		logger.Error(err, "failed to create Node IPAM controller")
-		klog.FlushAndExit(klog.ExitFlushTimeout, 1)
-	}
-
-	kubeInformerFactory.Start(ctx.Done())
-	sharedInformerFactory.Start(ctx.Done())
-
-	nodeIpamController.Run(ctx)
 }
 
 func bindingAddress(cfg config) string {
