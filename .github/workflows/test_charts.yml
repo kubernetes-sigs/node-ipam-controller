@@ -42,10 +42,12 @@ jobs:
       - name: Run chart-testing (list-changed)
         id: list-changed
         run: |
-          changed=$(ct list-changed --target-branch ${{ github.event.repository.default_branch }})
+          changed=$(ct list-changed --target-branch ${GITHUB_EVENT_REPOSITORY_DEFAULT_BRANCH})
           if [[ -n "$changed" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_REPOSITORY_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
 
       - name: Run chart-testing
         if: steps.list-changed.outputs.changed == 'true'
