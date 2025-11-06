@@ -16,6 +16,8 @@ name: Lint and Test Charts
 
 on: pull_request
 
+permissions: {}
+
 jobs:
   lint-test:
     runs-on: ubuntu-latest

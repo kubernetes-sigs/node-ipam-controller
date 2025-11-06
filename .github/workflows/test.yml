@@ -22,6 +22,8 @@ on:
     branches:
       - "**"
 
+permissions: {}
+
 jobs:
   lint:
     name: Run Linter
