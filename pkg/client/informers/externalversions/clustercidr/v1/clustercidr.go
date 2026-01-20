@@ -56,7 +56,7 @@ func NewClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Durati
 // one. This reduces memory footprint and number of connections to the server.
 func NewFilteredClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
 	return cache.NewSharedIndexInformer(
-		&cache.ListWatch{
+		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
 			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
 					tweakListOptions(&options)
@@ -81,7 +81,7 @@ func NewFilteredClusterCIDRInformer(client versioned.Interface, resyncPeriod tim
 				}
 				return client.NetworkingV1().ClusterCIDRs().Watch(ctx, options)
 			},
-		},
+		}, client),
 		&apisclustercidrv1.ClusterCIDR{},
 		resyncPeriod,
 		indexers,
