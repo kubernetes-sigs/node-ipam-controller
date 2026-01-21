@@ -13,7 +13,7 @@
 # limitations under the License.
 
 # Build the node-ipam-controller binary
-FROM golang:1.24 AS builder
+FROM golang:1.25 AS builder
 ARG TARGETOS
 ARG TARGETARCH
 

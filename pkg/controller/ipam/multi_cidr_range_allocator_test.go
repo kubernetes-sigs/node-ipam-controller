@@ -148,7 +148,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -187,7 +187,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -230,7 +230,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -272,7 +272,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -311,7 +311,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 			fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 			fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
 			nodeList, _ := tc.fakeNodeHandler.List(context.TODO(), metav1.ListOptions{})
-			fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
+			fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
 			_, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, fakeNodeInformer, fakeClusterCIDRInformer, tc.allocatorParams, nodeList, tc.testCIDRMap)
 			if err == nil && tc.ctrlCreateFail {
 				t.Fatalf("creating range allocator was expected to fail, but it did not")
@@ -352,7 +352,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -391,7 +391,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -435,7 +435,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -482,7 +482,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -547,7 +547,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -616,7 +616,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -686,7 +686,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -755,7 +755,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -825,7 +825,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -895,7 +895,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR: func() *net.IPNet {
@@ -985,7 +985,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1023,7 +1023,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
 		allocator, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nodeList, tc.testCIDRMap)
 		if err != nil {
 			t.Errorf("%v: failed to create CIDRRangeAllocator with error %v", tc.description, err)
@@ -1121,7 +1121,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1163,7 +1163,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1205,7 +1205,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1248,7 +1248,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1291,7 +1291,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1325,7 +1325,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
 		// Initialize the range allocator.
 		allocator, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nil, tc.testCIDRMap)
 		if err != nil {
@@ -1431,7 +1431,7 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1477,7 +1477,7 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 						},
 					},
 				},
-				Clientset: fake.NewSimpleClientset(),
+				Clientset: fake.NewClientset(),
 			},
 			allocatorParams: CIDRAllocatorParams{
 				ServiceCIDR:          nil,
@@ -1518,7 +1518,7 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
 		// Initialize the range allocator.
 		allocator, _ := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nil, tc.testCIDRMap)
 		rangeAllocator, ok := allocator.(*multiCIDRRangeAllocator)
@@ -1630,13 +1630,13 @@ type nodeIPAMController struct {
 }
 
 func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMController) {
-	client := clustercidrfake.NewSimpleClientset()
+	client := clustercidrfake.NewSimpleClientset() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
 	informerFactory := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc())
 	cccInformer := informerFactory.Networking().V1().ClusterCIDRs()
 
 	cccIndexer := cccInformer.Informer().GetIndexer()
 
-	nodeClient := fake.NewSimpleClientset()
+	nodeClient := fake.NewClientset()
 	nodeInformerFactory := informers.NewSharedInformerFactory(nodeClient, NoResyncPeriodFunc())
 	nodeInformer := nodeInformerFactory.Core().V1().Nodes()
 
