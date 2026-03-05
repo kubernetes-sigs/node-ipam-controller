@@ -21,28 +21,6 @@ import (
 	"testing"
 )
 
-func TestContainsString(t *testing.T) {
-	src := []string{"aa", "bb", "cc"}
-	if !ContainsString(src, "bb", nil) {
-		t.Errorf("ContainsString didn't find the string as expected")
-	}
-
-	modifier := func(s string) string {
-		if s == "cc" {
-			return "ee"
-		}
-		return s
-	}
-	if !ContainsString(src, "ee", modifier) {
-		t.Errorf("ContainsString didn't find the string by modifier")
-	}
-
-	src = make([]string, 0)
-	if ContainsString(src, "", nil) {
-		t.Errorf("The result returned is not the expected result")
-	}
-}
-
 func TestRemoveString(t *testing.T) {
 	modifier := func(s string) string {
 		if s == "ab" {

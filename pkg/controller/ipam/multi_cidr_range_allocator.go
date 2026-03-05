@@ -482,8 +482,7 @@ func (r *multiCIDRRangeAllocator) syncNode(logger klog.Logger, key string) error
 
 // needToAddFinalizer checks if a finalizer should be added to the object.
 func needToAddFinalizer(obj metav1.Object, finalizer string) bool {
-	return obj.GetDeletionTimestamp() == nil && !slice.ContainsString(obj.GetFinalizers(),
-		finalizer, nil)
+	return obj.GetDeletionTimestamp() == nil && !slices.Contains(obj.GetFinalizers(), finalizer)
 }
 
 func (r *multiCIDRRangeAllocator) syncClusterCIDR(ctx context.Context, key string) error {
@@ -1228,7 +1227,7 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 	defer r.lock.Unlock()
 
 	logger := klog.FromContext(ctx)
-	if slice.ContainsString(clusterCIDR.GetFinalizers(), clusterCIDRFinalizer, nil) {
+	if slices.Contains(clusterCIDR.GetFinalizers(), clusterCIDRFinalizer) {
 		logger.V(2).Info("Releasing ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
 		if err := r.deleteClusterCIDR(logger, clusterCIDR); err != nil {
 			logger.V(2).Info("Error while deleting ClusterCIDR", "err", err)
