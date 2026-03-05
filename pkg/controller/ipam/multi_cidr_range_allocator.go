@@ -75,9 +75,6 @@ const (
 	// The no. of NodeSpec updates NC can process concurrently.
 	cidrUpdateWorkers = 30
 
-	// The max no. of NodeSpec updates that can be enqueued.
-	cidrUpdateQueueSize = 5000
-
 	// cidrUpdateRetries is the no. of times a NodeSpec update will be retried before dropping it.
 	cidrUpdateRetries = 3
 )
@@ -137,11 +134,8 @@ type multiCIDRRangeAllocator struct {
 	clusterCIDRLister clustercidrlisters.ClusterCIDRLister
 	// clusterCIDRSynced returns true if the clustercidr shared informer has been synced at least once.
 	clusterCIDRSynced cache.InformerSynced
-	// Channel that is used to pass updating Nodes and their reserved CIDRs to the background.
-	// This increases a throughput of CIDR assignment by not blocking on long operations.
-	nodeCIDRUpdateChannel chan multiCIDRNodeReservedCIDRs
-	broadcaster           record.EventBroadcaster
-	recorder              record.EventRecorder
+	broadcaster       record.EventBroadcaster
+	recorder          record.EventRecorder
 	// queues are where incoming work is placed to de-dup and to allow "easy"
 	// rate limited requeues on errors
 	cidrQueue workqueue.TypedRateLimitingInterface[string]
@@ -183,15 +177,14 @@ func NewMultiCIDRRangeAllocator(
 	recorder := eventBroadcaster.NewRecorder(scheme.Scheme, eventSource)
 
 	ra := &multiCIDRRangeAllocator{
-		client:                client,
-		networkClient:         networkClient,
-		nodeLister:            nodeInformer.Lister(),
-		nodesSynced:           nodeInformer.Informer().HasSynced,
-		clusterCIDRLister:     clusterCIDRInformer.Lister(),
-		clusterCIDRSynced:     clusterCIDRInformer.Informer().HasSynced,
-		nodeCIDRUpdateChannel: make(chan multiCIDRNodeReservedCIDRs, cidrUpdateQueueSize),
-		broadcaster:           eventBroadcaster,
-		recorder:              recorder,
+		client:            client,
+		networkClient:     networkClient,
+		nodeLister:        nodeInformer.Lister(),
+		nodesSynced:       nodeInformer.Informer().HasSynced,
+		clusterCIDRLister: clusterCIDRInformer.Lister(),
+		clusterCIDRSynced: clusterCIDRInformer.Informer().HasSynced,
+		broadcaster:       eventBroadcaster,
+		recorder:          recorder,
 		cidrQueue: workqueue.NewTypedRateLimitingQueueWithConfig(
 			workqueue.DefaultTypedControllerRateLimiter[string](),
 			workqueue.TypedRateLimitingQueueConfig[string]{Name: "multi_cidr_range_allocator_cidr"},
