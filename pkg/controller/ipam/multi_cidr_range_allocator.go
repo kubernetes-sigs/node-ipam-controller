@@ -895,7 +895,11 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 			}
 			if cidrSet != nil {
 				for allocated := range cidrSet.AllocatedCIDRMap {
-					_, allocatedCIDR, _ := netutil.ParseCIDRSloppy(allocated)
+					_, allocatedCIDR, err := netutil.ParseCIDRSloppy(allocated)
+					if err != nil {
+						logger.Error(err, "failed to parse CIDR", "cidr", allocated)
+						continue
+					}
 					if cidr.Contains(allocatedCIDR.IP.Mask(cidr.Mask)) || allocatedCIDR.Contains(cidr.IP.Mask(allocatedCIDR.Mask)) {
 						return true
 					}
