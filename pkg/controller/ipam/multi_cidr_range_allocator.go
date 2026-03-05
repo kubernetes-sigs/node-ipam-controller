@@ -583,7 +583,7 @@ func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr 
 	}
 
 	if err := currCIDRSet.Occupy(cidr); err != nil {
-		return fmt.Errorf("unable to occupy cidr %v in cidrSet", cidr)
+		return fmt.Errorf("unable to occupy cidr %v in cidrSet: %w", cidr, err)
 	}
 
 	return nil
@@ -626,7 +626,7 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 	cidrs, clusterCIDR, err := r.prioritizedCIDRs(logger, node)
 	if err != nil {
 		controllerutil.RecordNodeStatusChange(logger, r.recorder, node, "CIDRNotAvailable")
-		return fmt.Errorf("failed to get cidrs for node %s", node.Name)
+		return fmt.Errorf("failed to get cidrs for node %s: %w", node.Name, err)
 	}
 
 	if len(cidrs) == 0 {
