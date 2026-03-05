@@ -27,14 +27,6 @@ import (
 	"sync"
 	"time"
 
-	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
-	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
-	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
-	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
-	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
-	controllerutil "sigs.k8s.io/node-ipam-controller/pkg/util/node"
-	"sigs.k8s.io/node-ipam-controller/pkg/util/slice"
-
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -56,6 +48,13 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 	netutil "k8s.io/utils/net"
+
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
+	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
+	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
+	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
+	controllerutil "sigs.k8s.io/node-ipam-controller/pkg/util/node"
 )
 
 const (
@@ -482,8 +481,7 @@ func (r *multiCIDRRangeAllocator) syncNode(logger klog.Logger, key string) error
 
 // needToAddFinalizer checks if a finalizer should be added to the object.
 func needToAddFinalizer(obj metav1.Object, finalizer string) bool {
-	return obj.GetDeletionTimestamp() == nil && !slice.ContainsString(obj.GetFinalizers(),
-		finalizer, nil)
+	return obj.GetDeletionTimestamp() == nil && !slices.Contains(obj.GetFinalizers(), finalizer)
 }
 
 func (r *multiCIDRRangeAllocator) syncClusterCIDR(ctx context.Context, key string) error {
@@ -585,7 +583,7 @@ func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr 
 	}
 
 	if err := currCIDRSet.Occupy(cidr); err != nil {
-		return fmt.Errorf("unable to occupy cidr %v in cidrSet", cidr)
+		return fmt.Errorf("unable to occupy cidr %v in cidrSet: %w", cidr, err)
 	}
 
 	return nil
@@ -628,7 +626,7 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 	cidrs, clusterCIDR, err := r.prioritizedCIDRs(logger, node)
 	if err != nil {
 		controllerutil.RecordNodeStatusChange(logger, r.recorder, node, "CIDRNotAvailable")
-		return fmt.Errorf("failed to get cidrs for node %s", node.Name)
+		return fmt.Errorf("failed to get cidrs for node %s: %w", node.Name, err)
 	}
 
 	if len(cidrs) == 0 {
@@ -805,7 +803,9 @@ func defaultNodeSelector() *corev1.NodeSelector {
 // prioritizedCIDRs returns a list of CIDRs to be allocated to the node.
 // Returns 1 CIDR  if single stack.
 // Returns 2 CIDRs , 1 from each ip family if dual stack.
-func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *corev1.Node) ([]*net.IPNet, *cidrset.ClusterCIDR, error) {
+func (r *multiCIDRRangeAllocator) prioritizedCIDRs(
+	logger klog.Logger, node *corev1.Node,
+) ([]*net.IPNet, *cidrset.ClusterCIDR, error) {
 	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to get a clusterCIDR for node %s: %w", node.Name, err)
@@ -814,7 +814,7 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 	for _, clusterCIDR := range clusterCIDRList {
 		cidrs := make([]*net.IPNet, 0)
 		if clusterCIDR.IPv4CIDRSet != nil {
-			cidr, err := r.allocateCIDR(clusterCIDR, clusterCIDR.IPv4CIDRSet)
+			cidr, err := r.allocateCIDR(logger, clusterCIDR, clusterCIDR.IPv4CIDRSet)
 			if err != nil {
 				logger.V(3).Info("Unable to allocate IPv4 CIDR, trying next range", "err", err)
 				continue
@@ -823,7 +823,7 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 		}
 
 		if clusterCIDR.IPv6CIDRSet != nil {
-			cidr, err := r.allocateCIDR(clusterCIDR, clusterCIDR.IPv6CIDRSet)
+			cidr, err := r.allocateCIDR(logger, clusterCIDR, clusterCIDR.IPv6CIDRSet)
 			if err != nil {
 				logger.V(3).Info("Unable to allocate IPv6 CIDR, trying next range", "err", err)
 				continue
@@ -836,7 +836,9 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 	return nil, nil, fmt.Errorf("unable to get a clusterCIDR for node %s, no available CIDRs", node.Name)
 }
 
-func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet) (*net.IPNet, error) {
+func (r *multiCIDRRangeAllocator) allocateCIDR(
+	logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet,
+) (*net.IPNet, error) {
 	for evaluated := 0; evaluated < cidrSet.MaxCIDRs; evaluated++ {
 		candidate, lastEvaluated, err := cidrSet.NextCandidate()
 		if err != nil {
@@ -845,12 +847,12 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR,
 
 		evaluated += lastEvaluated
 
-		if r.cidrInAllocatedList(candidate) {
+		if r.cidrInAllocatedList(logger, candidate) {
 			continue
 		}
 
 		// Deep Check.
-		if r.cidrOverlapWithAllocatedList(candidate) {
+		if r.cidrOverlapWithAllocatedList(logger, candidate) {
 			continue
 		}
 
@@ -867,10 +869,13 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR,
 	}
 }
 
-func (r *multiCIDRRangeAllocator) cidrInAllocatedList(cidr *net.IPNet) bool {
+func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *net.IPNet) bool {
 	for _, clusterCIDRList := range r.cidrMap {
 		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, _ := r.associatedCIDRSet(clusterCIDR, cidr)
+			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+			if err != nil {
+				logger.Error(err, "failed to associate CIDR set")
+			}
 			if cidrSet != nil {
 				if ok := cidrSet.AllocatedCIDRMap[cidr.String()]; ok {
 					return true
@@ -881,13 +886,20 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(cidr *net.IPNet) bool {
 	return false
 }
 
-func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(cidr *net.IPNet) bool {
+func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logger, cidr *net.IPNet) bool {
 	for _, clusterCIDRList := range r.cidrMap {
 		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, _ := r.associatedCIDRSet(clusterCIDR, cidr)
+			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+			if err != nil {
+				logger.Error(err, "failed to associate CIDR set")
+			}
 			if cidrSet != nil {
 				for allocated := range cidrSet.AllocatedCIDRMap {
-					_, allocatedCIDR, _ := netutil.ParseCIDRSloppy(allocated)
+					_, allocatedCIDR, err := netutil.ParseCIDRSloppy(allocated)
+					if err != nil {
+						logger.Error(err, "failed to parse CIDR", "cidr", allocated)
+						continue
+					}
 					if cidr.Contains(allocatedCIDR.IP.Mask(cidr.Mask)) || allocatedCIDR.Contains(cidr.IP.Mask(allocatedCIDR.Mask)) {
 						return true
 					}
@@ -1218,7 +1230,7 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 	defer r.lock.Unlock()
 
 	logger := klog.FromContext(ctx)
-	if slice.ContainsString(clusterCIDR.GetFinalizers(), clusterCIDRFinalizer, nil) {
+	if slices.Contains(clusterCIDR.GetFinalizers(), clusterCIDRFinalizer) {
 		logger.V(2).Info("Releasing ClusterCIDR", "clusterCIDR", clusterCIDR.Name)
 		if err := r.deleteClusterCIDR(logger, clusterCIDR); err != nil {
 			logger.V(2).Info("Error while deleting ClusterCIDR", "err", err)
@@ -1226,7 +1238,10 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 		}
 		// Remove the finalizer as delete is successful.
 		cccCopy := clusterCIDR.DeepCopy()
-		cccCopy.Finalizers = slice.RemoveString(cccCopy.Finalizers, clusterCIDRFinalizer, nil)
+		cccCopy.Finalizers = slices.DeleteFunc(cccCopy.Finalizers, func(s string) bool {
+			return clusterCIDRFinalizer == s
+		})
+
 		if _, err := r.networkClient.Update(ctx, cccCopy, metav1.UpdateOptions{}); err != nil {
 			logger.V(2).Info("Error removing finalizer for ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
 			return err
