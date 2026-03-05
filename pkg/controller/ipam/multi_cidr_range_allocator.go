@@ -805,7 +805,9 @@ func defaultNodeSelector() *corev1.NodeSelector {
 // prioritizedCIDRs returns a list of CIDRs to be allocated to the node.
 // Returns 1 CIDR  if single stack.
 // Returns 2 CIDRs , 1 from each ip family if dual stack.
-func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *corev1.Node) ([]*net.IPNet, *cidrset.ClusterCIDR, error) {
+func (r *multiCIDRRangeAllocator) prioritizedCIDRs(
+	logger klog.Logger, node *corev1.Node,
+) ([]*net.IPNet, *cidrset.ClusterCIDR, error) {
 	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to get a clusterCIDR for node %s: %w", node.Name, err)
@@ -814,7 +816,7 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 	for _, clusterCIDR := range clusterCIDRList {
 		cidrs := make([]*net.IPNet, 0)
 		if clusterCIDR.IPv4CIDRSet != nil {
-			cidr, err := r.allocateCIDR(clusterCIDR, clusterCIDR.IPv4CIDRSet)
+			cidr, err := r.allocateCIDR(logger, clusterCIDR, clusterCIDR.IPv4CIDRSet)
 			if err != nil {
 				logger.V(3).Info("Unable to allocate IPv4 CIDR, trying next range", "err", err)
 				continue
@@ -823,7 +825,7 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 		}
 
 		if clusterCIDR.IPv6CIDRSet != nil {
-			cidr, err := r.allocateCIDR(clusterCIDR, clusterCIDR.IPv6CIDRSet)
+			cidr, err := r.allocateCIDR(logger, clusterCIDR, clusterCIDR.IPv6CIDRSet)
 			if err != nil {
 				logger.V(3).Info("Unable to allocate IPv6 CIDR, trying next range", "err", err)
 				continue
@@ -836,7 +838,9 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(logger klog.Logger, node *cor
 	return nil, nil, fmt.Errorf("unable to get a clusterCIDR for node %s, no available CIDRs", node.Name)
 }
 
-func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet) (*net.IPNet, error) {
+func (r *multiCIDRRangeAllocator) allocateCIDR(
+	logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet,
+) (*net.IPNet, error) {
 	for evaluated := 0; evaluated < cidrSet.MaxCIDRs; evaluated++ {
 		candidate, lastEvaluated, err := cidrSet.NextCandidate()
 		if err != nil {
@@ -845,12 +849,12 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR,
 
 		evaluated += lastEvaluated
 
-		if r.cidrInAllocatedList(candidate) {
+		if r.cidrInAllocatedList(logger, candidate) {
 			continue
 		}
 
 		// Deep Check.
-		if r.cidrOverlapWithAllocatedList(candidate) {
+		if r.cidrOverlapWithAllocatedList(logger, candidate) {
 			continue
 		}
 
@@ -867,10 +871,13 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(clusterCIDR *cidrset.ClusterCIDR,
 	}
 }
 
-func (r *multiCIDRRangeAllocator) cidrInAllocatedList(cidr *net.IPNet) bool {
+func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *net.IPNet) bool {
 	for _, clusterCIDRList := range r.cidrMap {
 		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, _ := r.associatedCIDRSet(clusterCIDR, cidr)
+			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+			if err != nil {
+				logger.Error(err, "failed to associate CIDR set")
+			}
 			if cidrSet != nil {
 				if ok := cidrSet.AllocatedCIDRMap[cidr.String()]; ok {
 					return true
@@ -881,10 +888,13 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(cidr *net.IPNet) bool {
 	return false
 }
 
-func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(cidr *net.IPNet) bool {
+func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logger, cidr *net.IPNet) bool {
 	for _, clusterCIDRList := range r.cidrMap {
 		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, _ := r.associatedCIDRSet(clusterCIDR, cidr)
+			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+			if err != nil {
+				logger.Error(err, "failed to associate CIDR set")
+			}
 			if cidrSet != nil {
 				for allocated := range cidrSet.AllocatedCIDRMap {
 					_, allocatedCIDR, _ := netutil.ParseCIDRSloppy(allocated)
