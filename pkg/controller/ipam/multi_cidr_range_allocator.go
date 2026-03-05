@@ -27,14 +27,6 @@ import (
 	"sync"
 	"time"
 
-	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
-	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
-	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
-	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
-	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
-	controllerutil "sigs.k8s.io/node-ipam-controller/pkg/util/node"
-	"sigs.k8s.io/node-ipam-controller/pkg/util/slice"
-
 	corev1 "k8s.io/api/core/v1"
 	apiequality "k8s.io/apimachinery/pkg/api/equality"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -56,6 +48,13 @@ import (
 	nodeutil "k8s.io/component-helpers/node/util"
 	"k8s.io/klog/v2"
 	netutil "k8s.io/utils/net"
+
+	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
+	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
+	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
+	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
+	controllerutil "sigs.k8s.io/node-ipam-controller/pkg/util/node"
 )
 
 const (
@@ -1235,7 +1234,10 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 		}
 		// Remove the finalizer as delete is successful.
 		cccCopy := clusterCIDR.DeepCopy()
-		cccCopy.Finalizers = slice.RemoveString(cccCopy.Finalizers, clusterCIDRFinalizer, nil)
+		cccCopy.Finalizers = slices.DeleteFunc(cccCopy.Finalizers, func(s string) bool {
+			return clusterCIDRFinalizer == s
+		})
+
 		if _, err := r.networkClient.Update(ctx, cccCopy, metav1.UpdateOptions{}); err != nil {
 			logger.V(2).Info("Error removing finalizer for ClusterCIDR", "clusterCIDR", clusterCIDR.Name, "err", err)
 			return err
