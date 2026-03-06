@@ -242,12 +242,14 @@ func NewMultiCIDRRangeAllocator(
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			// IndexerInformer uses a delta nodeQueue, therefore for deletes we have to use this
+			// IndexerInformer uses a delta cidrQueue, therefore for deletes we have to use this
 			// key function.
 			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-			if err == nil {
-				ra.cidrQueue.Add(key)
+			if err != nil {
+				utilruntime.HandleError(fmt.Errorf("couldn't get key for cidr %+v: %w", obj, err))
+				return
 			}
+			ra.cidrQueue.Add(key)
 		},
 	})
 	if err != nil {
@@ -298,19 +300,7 @@ func NewMultiCIDRRangeAllocator(
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			// The informer cache no longer has the object, and since Node doesn't have a finalizer,
-			// we don't see the Update with DeletionTimestamp != 0.
-			// TODO: instead of executing the operation directly in the handler, build a small cache with key node.Name
-			// and value PodCIDRs use ReleaseCIDR on the reconcile loop so we can retry on `ReleaseCIDR` failures.
-			if err := ra.ReleaseCIDR(logger, obj.(*corev1.Node)); err != nil {
-				logger.Error(err, "failed to release CIDR")
-			}
-			// IndexerInformer uses a delta nodeQueue, therefore for deletes we have to use this
-			// key function.
-			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-			if err == nil {
-				ra.nodeQueue.Add(key)
-			}
+			ra.handleNodeDelete(logger, obj)
 		},
 	})
 	if err != nil {
@@ -318,6 +308,39 @@ func NewMultiCIDRRangeAllocator(
 	}
 
 	return ra, nil
+}
+
+func (r *multiCIDRRangeAllocator) handleNodeDelete(logger klog.Logger, obj interface{}) {
+	// IndexerInformer uses a delta nodeQueue, therefore for deletes we have to use this
+	// key function.
+	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
+	if err != nil {
+		utilruntime.HandleError(fmt.Errorf("couldn't get key for node %+v: %w", obj, err))
+		return
+	}
+
+	node, ok := obj.(*corev1.Node)
+	if !ok {
+		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("couldn't get object from tombstone %+v", obj))
+			return
+		}
+		node, ok = tombstone.Obj.(*corev1.Node)
+		if !ok {
+			utilruntime.HandleError(fmt.Errorf("tombstone contained object that is not a Node %+v", obj))
+			return
+		}
+	}
+
+	// The informer cache no longer has the object, and since Node doesn't have a finalizer,
+	// we don't see the Update with DeletionTimestamp != 0.
+	// TODO: instead of executing the operation directly in the handler, build a small cache with key node.Name
+	// and value PodCIDRs use ReleaseCIDR on the reconcile loop so we can retry on `ReleaseCIDR` failures.
+	if err := r.ReleaseCIDR(logger, node); err != nil {
+		logger.Error(err, "failed to release CIDR")
+	}
+	r.nodeQueue.Add(key)
 }
 
 func (r *multiCIDRRangeAllocator) Run(ctx context.Context) {
