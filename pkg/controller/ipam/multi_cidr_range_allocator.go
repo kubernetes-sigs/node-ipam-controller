@@ -311,14 +311,6 @@ func NewMultiCIDRRangeAllocator(
 }
 
 func (r *multiCIDRRangeAllocator) handleNodeDelete(logger klog.Logger, obj interface{}) {
-	// IndexerInformer uses a delta nodeQueue, therefore for deletes we have to use this
-	// key function.
-	key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
-	if err != nil {
-		utilruntime.HandleError(fmt.Errorf("couldn't get key for node %+v: %w", obj, err))
-		return
-	}
-
 	node, ok := obj.(*corev1.Node)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
@@ -333,14 +325,9 @@ func (r *multiCIDRRangeAllocator) handleNodeDelete(logger klog.Logger, obj inter
 		}
 	}
 
-	// The informer cache no longer has the object, and since Node doesn't have a finalizer,
-	// we don't see the Update with DeletionTimestamp != 0.
-	// TODO: instead of executing the operation directly in the handler, build a small cache with key node.Name
-	// and value PodCIDRs use ReleaseCIDR on the reconcile loop so we can retry on `ReleaseCIDR` failures.
 	if err := r.ReleaseCIDR(logger, node); err != nil {
 		logger.Error(err, "failed to release CIDR")
 	}
-	r.nodeQueue.Add(key)
 }
 
 func (r *multiCIDRRangeAllocator) Run(ctx context.Context) {
@@ -480,8 +467,6 @@ func (r *multiCIDRRangeAllocator) syncNode(logger klog.Logger, key string) error
 	node, err := r.nodeLister.Get(key)
 	if apierrors.IsNotFound(err) {
 		logger.V(3).Info("node has been deleted", "node", key)
-		// TODO: obtain the node object information to call ReleaseCIDR from here
-		// and retry if there is an error.
 		return nil
 	}
 	if err != nil {
