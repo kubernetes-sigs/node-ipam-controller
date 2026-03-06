@@ -503,57 +503,53 @@ func (r *multiCIDRRangeAllocator) syncClusterCIDR(ctx context.Context, key strin
 
 // occupyCIDRs marks node.PodCIDRs[...] as used in allocator's tracked cidrSet.
 func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.Node) error {
-	err := func(node *corev1.Node) error {
-		if len(node.Spec.PodCIDRs) == 0 {
+	if len(node.Spec.PodCIDRs) == 0 {
+		return nil
+	}
+	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true)
+	if err != nil {
+		return err
+	}
+
+	// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
+	// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
+	// not want to do that because they just want to get rid of that specific range. In the other hand, users
+	// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
+	// fail and retry a couple of time can provide information to these users.
+	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+	if len(clusterCIDRList) == 0 {
+		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+	}
+
+	attempts := 0
+	for _, clusterCIDR := range clusterCIDRList {
+		occupiedCount := 0
+		attempts++
+
+		for _, cidr := range node.Spec.PodCIDRs {
+			_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
+			if err != nil {
+				return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
+			}
+
+			logger.Info("occupy CIDR for node", "CIDR", cidr, "node", klog.KObj(node))
+
+			if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
+				logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
+				break
+			}
+
+			occupiedCount++
+		}
+
+		// Mark CIDRs as occupied only if the CCC is able to occupy all the node CIDRs.
+		if occupiedCount == len(node.Spec.PodCIDRs) {
+			clusterCIDR.AssociatedNodes[node.Name] = true
 			return nil
 		}
-		clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true)
-		if err != nil {
-			return err
-		}
+	}
 
-		// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
-		// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
-		// not want to do that because they just want to get rid of that specific range. In the other hand, users
-		// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
-		// fail and retry a couple of time can provide information to these users.
-		// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
-		if len(clusterCIDRList) == 0 {
-			return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
-		}
-
-		attempts := 0
-		for _, clusterCIDR := range clusterCIDRList {
-			occupiedCount := 0
-			attempts++
-
-			for _, cidr := range node.Spec.PodCIDRs {
-				_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
-				if err != nil {
-					return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
-				}
-
-				logger.Info("occupy CIDR for node", "CIDR", cidr, "node", klog.KObj(node))
-
-				if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
-					logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
-					break
-				}
-
-				occupiedCount++
-			}
-
-			// Mark CIDRs as occupied only if the CCC is able to occupy all the node CIDRs.
-			if occupiedCount == len(node.Spec.PodCIDRs) {
-				clusterCIDR.AssociatedNodes[node.Name] = true
-				return nil
-			}
-		}
-
-		return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
-	}(node)
-
-	return err
+	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
 }
 
 // associatedCIDRSet returns the CIDRSet, based on the ip family of the CIDR.
@@ -710,66 +706,64 @@ func (r *multiCIDRRangeAllocator) occupyServiceCIDR(clusterCIDR *cidrset.Cluster
 
 // updateCIDRsAllocation assigns CIDR to Node and sends an update to the API server.
 func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data multiCIDRNodeReservedCIDRs) error {
-	err := func(data multiCIDRNodeReservedCIDRs) error {
-		cidrsString := ipnetToStringList(data.allocatedCIDRs)
-		node, err := r.nodeLister.Get(data.nodeName)
-		if err != nil {
-			logger.Error(err, "Failed while getting node for updating Node.Spec.PodCIDRs", "node", klog.KRef("", data.nodeName))
-			return err
-		}
+	cidrsString := ipnetToStringList(data.allocatedCIDRs)
+	node, err := r.nodeLister.Get(data.nodeName)
+	if err != nil {
+		logger.Error(err, "Failed while getting node for updating Node.Spec.PodCIDRs", "node", klog.KRef("", data.nodeName))
+		return err
+	}
 
-		// if cidr list matches the proposed,
-		// then we possibly updated this node
-		// and just failed to ack the success.
-		if len(node.Spec.PodCIDRs) == len(data.allocatedCIDRs) {
-			match := true
-			for idx, cidr := range cidrsString {
-				if node.Spec.PodCIDRs[idx] != cidr {
-					match = false
-					break
-				}
-			}
-			if match {
-				logger.V(4).Info("Node already has allocated CIDR. It matches the proposed one.", "node", klog.KObj(node), "CIDRs", data.allocatedCIDRs)
-				return nil
+	// if cidr list matches the proposed,
+	// then we possibly updated this node
+	// and just failed to ack the success.
+	if len(node.Spec.PodCIDRs) == len(data.allocatedCIDRs) {
+		match := true
+		for idx, cidr := range cidrsString {
+			if node.Spec.PodCIDRs[idx] != cidr {
+				match = false
+				break
 			}
 		}
-
-		// node has cidrs allocated, release the reserved.
-		if len(node.Spec.PodCIDRs) != 0 {
-			logger.Error(nil, "Node already has a CIDR allocated. Releasing the new one", "node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs)
-			for _, cidr := range data.allocatedCIDRs {
-				if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
-					return fmt.Errorf("failed to release cidr %s from clusterCIDR %s for node: %s: %w", cidr, data.clusterCIDR.Name, node.Name, err)
-				}
-			}
+		if match {
+			logger.V(4).Info("Node already has allocated CIDR. It matches the proposed one.", "node", klog.KObj(node), "CIDRs", data.allocatedCIDRs)
 			return nil
 		}
+	}
 
-		// If we reached here, it means that the node has no CIDR currently assigned. So we set it.
-		for i := 0; i < cidrUpdateRetries; i++ {
-			if err = nodeutil.PatchNodeCIDRs(context.Background(), r.client, types.NodeName(node.Name), cidrsString); err == nil {
-				data.clusterCIDR.AssociatedNodes[node.Name] = true
-				logger.Info("Set node PodCIDR", "node", klog.KObj(node), "podCIDR", cidrsString)
-				return nil
+	// node has cidrs allocated, release the reserved.
+	if len(node.Spec.PodCIDRs) != 0 {
+		logger.Error(nil, "Node already has a CIDR allocated. Releasing the new one", "node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs)
+		for _, cidr := range data.allocatedCIDRs {
+			if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
+				return fmt.Errorf("failed to release cidr %s from clusterCIDR %s for node: %s: %w", cidr, data.clusterCIDR.Name, node.Name, err)
 			}
 		}
-		// failed release back to the pool.
-		logger.Error(err, "Failed to update node PodCIDR after attempts", "node", klog.KObj(node), "podCIDR", cidrsString, "retries", cidrUpdateRetries)
-		controllerutil.RecordNodeStatusChange(logger, r.recorder, node, "CIDRAssignmentFailed")
-		// We accept the fact that we may leak CIDRs here. This is safer than releasing
-		// them in case when we don't know if request went through.
-		// NodeController restart will return all falsely allocated CIDRs to the pool.
-		if !apierrors.IsServerTimeout(err) {
-			logger.Error(err, "CIDR assignment for node failed. Releasing allocated CIDR", "node", klog.KObj(node))
-			for _, cidr := range data.allocatedCIDRs {
-				if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
-					return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node: %q: %w", cidr, data.clusterCIDR.Name, node.Name, err)
-				}
+		return nil
+	}
+
+	// If we reached here, it means that the node has no CIDR currently assigned. So we set it.
+	for i := 0; i < cidrUpdateRetries; i++ {
+		if err = nodeutil.PatchNodeCIDRs(context.Background(), r.client, types.NodeName(node.Name), cidrsString); err == nil {
+			data.clusterCIDR.AssociatedNodes[node.Name] = true
+			logger.Info("Set node PodCIDR", "node", klog.KObj(node), "podCIDR", cidrsString)
+			return nil
+		}
+	}
+
+	// failed release back to the pool.
+	logger.Error(err, "Failed to update node PodCIDR after attempts", "node", klog.KObj(node), "podCIDR", cidrsString, "retries", cidrUpdateRetries)
+	controllerutil.RecordNodeStatusChange(logger, r.recorder, node, "CIDRAssignmentFailed")
+	// We accept the fact that we may leak CIDRs here. This is safer than releasing
+	// them in case when we don't know if request went through.
+	// NodeController restart will return all falsely allocated CIDRs to the pool.
+	if !apierrors.IsServerTimeout(err) {
+		logger.Error(err, "CIDR assignment for node failed. Releasing allocated CIDR", "node", klog.KObj(node))
+		for _, cidr := range data.allocatedCIDRs {
+			if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
+				return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node: %q: %w", cidr, data.clusterCIDR.Name, node.Name, err)
 			}
 		}
-		return err
-	}(data)
+	}
 
 	return err
 }
