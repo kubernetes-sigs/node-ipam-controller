@@ -100,7 +100,7 @@ KUBEBUILDER_ASSETS=$(shell go run sigs.k8s.io/controller-runtime/tools/setup-env
 
 .PHONY: unit-test
 unit-test: manifests generate fmt ## Run tests.
-	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test -coverprofile cover.out -v ./...
+	KUBEBUILDER_ASSETS="$(KUBEBUILDER_ASSETS)" go test -race -coverprofile cover.out -v ./...
 
 .PHONY: test-charts
 test-charts: ## Lint and test charts.
