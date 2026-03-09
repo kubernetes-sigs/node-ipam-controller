@@ -1872,3 +1872,92 @@ func makeNodeSelector(key string, op corev1.NodeSelectorOperator, values []strin
 func NoResyncPeriodFunc() time.Duration {
 	return 0
 }
+
+func TestHandleNodeDeleteWithTombstone(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:   "test-node",
+			Labels: map[string]string{"testLabel-0": "node0"},
+		},
+		Spec: corev1.NodeSpec{
+			PodCIDRs: []string{"10.10.0.1/24"},
+		},
+	}
+
+	fakeNodeHandler := &test.FakeNodeHandler{
+		Existing:  []*corev1.Node{node},
+		Clientset: fake.NewClientset(),
+	}
+
+	fakeNodeInformer := test.FakeNodeInformer(fakeNodeHandler)
+	fakeClient := &clustercidrfake.Clientset{}
+	fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
+	fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
+	fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+
+	allocatorParams := CIDRAllocatorParams{
+		ServiceCIDR:          nil,
+		SecondaryServiceCIDR: nil,
+	}
+	testCIDRMap := getTestCidrMap(
+		map[string][]*testClusterCIDR{
+			getTestNodeSelector([]testNodeSelectorRequirement{
+				{
+					key:      "testLabel-0",
+					operator: corev1.NodeSelectorOpIn,
+					values:   []string{"node0"},
+				},
+			}): {
+				{
+					name:            "test-cidr",
+					perNodeHostBits: 8,
+					ipv4CIDR:        "10.10.0.0/16",
+				},
+			},
+		})
+
+	nodeList, _ := fakeNodeHandler.List(context.TODO(), metav1.ListOptions{})
+	allocator, err := NewMultiCIDRRangeAllocator(ctx, fakeNodeHandler, fakeCIDRClient, fakeNodeInformer, fakeClusterCIDRInformer, allocatorParams, nodeList, testCIDRMap)
+	require.NoError(t, err)
+
+	ra := allocator.(*multiCIDRRangeAllocator)
+
+	tests := []struct {
+		name string
+		obj  interface{}
+	}{
+		{
+			name: "regular node object",
+			obj:  node,
+		},
+		{
+			name: "DeletedFinalStateUnknown tombstone wrapping a node",
+			obj: cache.DeletedFinalStateUnknown{
+				Key: "test-node",
+				Obj: node,
+			},
+		},
+		{
+			name: "DeletedFinalStateUnknown tombstone wrapping a non-node object",
+			obj: cache.DeletedFinalStateUnknown{
+				Key: "test-node",
+				Obj: "not-a-node",
+			},
+		},
+		{
+			name: "completely unexpected object type",
+			obj:  "not-a-node",
+		},
+	}
+
+	logger, _ := ktesting.NewTestContext(t)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.NotPanics(t, func() {
+				ra.handleNodeDelete(logger, tc.obj)
+			})
+		})
+	}
+}
