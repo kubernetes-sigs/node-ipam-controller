@@ -181,7 +181,8 @@ jobs:
         export E2E_REPORT_DIR=${PWD}/_artifacts
 
         # Run tests
-        /usr/local/bin/ginkgo --nodes=25                  \
+        CGO_ENABLED=1 /usr/local/bin/ginkgo --race        \
+          --nodes=25                                      \
           --focus="Networking Granular Checks"            \
           --skip="Feature|Federation|machinery|PerformanceDNS|DualStack|Disruptive|Serial|Slow|KubeProxy|LoadBalancer|GCE|Netpol|NetworkPolicy|NodeConformance"   \
           /usr/local/bin/e2e.test                         \
