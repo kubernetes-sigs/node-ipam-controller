@@ -24,13 +24,13 @@ import (
 	"net"
 	"sync"
 
+	"k8s.io/klog/v2"
 	netutils "k8s.io/utils/net"
 )
 
 // MultiCIDRSet manages a set of CIDR ranges from which blocks of IPs can
 // be allocated from.
 type MultiCIDRSet struct {
-	sync.Mutex
 	// ClusterCIDR is the CIDR assigned to the cluster.
 	ClusterCIDR *net.IPNet
 	// NodeMaskSize is the mask size, in bits,assigned to the nodes
@@ -42,11 +42,12 @@ type MultiCIDRSet struct {
 	// as Number of allocations, Total number of CIDR releases, Percentage of
 	// allocated CIDRs, Tries required for allocating a CIDR for a particular CIDRSet.
 	Label string
-	// AllocatedCIDRMap stores all the allocated CIDRs from the current CIDRSet.
+
+	// allocatedCIDRMap stores all the allocated CIDRs from the current CIDRSet.
 	// Stores a mapping of the next candidate CIDR for allocation to it's
 	// allocation status. Next candidate is used only if allocation status is false.
-	AllocatedCIDRMap map[string]bool
-
+	// Protected by mu.
+	allocatedCIDRMap map[string]bool
 	// clusterMaskSize is the mask size, in bits, assigned to the cluster.
 	// caches the mask size to avoid the penalty of calling clusterCIDR.Mask.Size().
 	clusterMaskSize int
@@ -54,6 +55,8 @@ type MultiCIDRSet struct {
 	clusterCIDRName string
 	// nodeMask is the network mask assigned to the nodes.
 	nodeMask net.IPMask
+	// mu protects allocatedCIDRMap concurrent access.
+	mu sync.Mutex
 	// allocatedCIDRs counts the number of CIDRs allocated.
 	allocatedCIDRs int
 	// nextCandidate points to the next CIDR that should be free.
@@ -143,7 +146,7 @@ func NewMultiCIDRSet(clusterCIDRName string, cidrConfig *net.IPNet, perNodeHostB
 		MaxCIDRs:         maxCIDRs,
 		NodeMaskSize:     subNetMaskSize,
 		Label:            cidrConfig.String(),
-		AllocatedCIDRMap: make(map[string]bool, 0),
+		allocatedCIDRMap: make(map[string]bool),
 	}
 	cidrSetMaxCidrs.WithLabelValues(multiCIDRSet.Label, clusterCIDRName).Set(float64(maxCIDRs))
 
@@ -198,8 +201,8 @@ func (s *MultiCIDRSet) indexToCIDRBlock(index int) (*net.IPNet, error) {
 // NextCandidate returns the next candidate and the last evaluated index
 // for the current cidrSet. Returns nil if the candidate is already allocated.
 func (s *MultiCIDRSet) NextCandidate() (*net.IPNet, int, error) {
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	if s.allocatedCIDRs == s.MaxCIDRs {
 		return nil, 0, &CIDRRangeNoCIDRsRemainingErr{
@@ -214,7 +217,7 @@ func (s *MultiCIDRSet) NextCandidate() (*net.IPNet, int, error) {
 			return nil, i, err
 		}
 		// Check if the nextCandidate is not already allocated.
-		if _, ok := s.AllocatedCIDRMap[nextCandidateCIDR.String()]; !ok {
+		if _, ok := s.allocatedCIDRMap[nextCandidateCIDR.String()]; !ok {
 			s.nextCandidate = (candidate + 1) % s.MaxCIDRs
 			return nextCandidateCIDR, i, nil
 		}
@@ -277,8 +280,8 @@ func (s *MultiCIDRSet) Release(cidr *net.IPNet) error {
 	if err != nil {
 		return err
 	}
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for i := begin; i <= end; i++ {
 		// Remove from the allocated CIDR Map and decrement the counter only if currently
@@ -287,8 +290,8 @@ func (s *MultiCIDRSet) Release(cidr *net.IPNet) error {
 		if err != nil {
 			return err
 		}
-		if _, ok := s.AllocatedCIDRMap[currCIDR.String()]; ok {
-			delete(s.AllocatedCIDRMap, currCIDR.String())
+		if _, ok := s.allocatedCIDRMap[currCIDR.String()]; ok {
+			delete(s.allocatedCIDRMap, currCIDR.String())
 			s.allocatedCIDRs--
 			cidrSetReleases.WithLabelValues(s.Label, s.clusterCIDRName).Inc()
 		}
@@ -306,8 +309,8 @@ func (s *MultiCIDRSet) Occupy(cidr *net.IPNet) (err error) {
 	if err != nil {
 		return err
 	}
-	s.Lock()
-	defer s.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for i := begin; i <= end; i++ {
 		// Add to the allocated CIDR Map and increment the counter only if not already
@@ -316,8 +319,8 @@ func (s *MultiCIDRSet) Occupy(cidr *net.IPNet) (err error) {
 		if err != nil {
 			return err
 		}
-		if _, ok := s.AllocatedCIDRMap[currCIDR.String()]; !ok {
-			s.AllocatedCIDRMap[currCIDR.String()] = true
+		if _, ok := s.allocatedCIDRMap[currCIDR.String()]; !ok {
+			s.allocatedCIDRMap[currCIDR.String()] = true
 			cidrSetAllocations.WithLabelValues(s.Label, s.clusterCIDRName).Inc()
 			s.allocatedCIDRs++
 		}
@@ -358,4 +361,32 @@ func (s *MultiCIDRSet) UpdateEvaluatedCount(evaluated int) {
 // into subnets with mask of size `subNetMaskSize`.
 func getMaxCIDRs(subNetMaskSize, clusterMaskSize int) int {
 	return 1 << uint32(subNetMaskSize-clusterMaskSize)
+}
+
+// CIDRAllocated returns true if the given CIDR is exactly allocated in the set.
+func (s *MultiCIDRSet) CIDRAllocated(cidr *net.IPNet) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	_, ok := s.allocatedCIDRMap[cidr.String()]
+	return ok
+}
+
+// CIDROverlaps returns true if the given CIDR overlaps with any allocated CIDR in the set.
+func (s *MultiCIDRSet) CIDROverlaps(cidr *net.IPNet) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for allocated := range s.allocatedCIDRMap {
+		_, allocatedCIDR, err := netutils.ParseCIDRSloppy(allocated)
+		if err != nil {
+			klog.ErrorS(err, "failed to parse CIDR", "cidr", allocated)
+			continue
+		}
+		if cidr.Contains(allocatedCIDR.IP.Mask(cidr.Mask)) || allocatedCIDR.Contains(cidr.IP.Mask(allocatedCIDR.Mask)) {
+			return true
+		}
+	}
+
+	return false
 }

@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -1836,6 +1837,38 @@ func TestSyncClusterCIDRDeleteWithNodesAssociated(t *testing.T) {
 	cccController.clusterCIDRStore.Update(createdCCC)
 	err = cccController.syncClusterCIDR(ctx, createdCCC.Name)
 	assert.Error(t, err, fmt.Sprintf("ClusterCIDR %s marked as terminating, won't be deleted until all associated nodes are deleted", createdCCC.Name))
+}
+
+func TestMultiCIDRSetDataRace(t *testing.T) {
+	_, cidr, err := utilnet.ParseCIDRSloppy("10.0.0.0/16")
+	require.NoError(t, err)
+
+	cidrSet, err := multicidrset.NewMultiCIDRSet("race-test", cidr, 8)
+	require.NoError(t, err)
+
+	clusterCIDR := &multicidrset.ClusterCIDR{
+		Name:            "race-test",
+		IPv4CIDRSet:     cidrSet,
+		AssociatedNodes: make(map[string]bool),
+	}
+
+	selectorKey := "race-selector"
+	ra := &multiCIDRRangeAllocator{
+		lock:    &sync.Mutex{},
+		cidrMap: map[string][]*multicidrset.ClusterCIDR{selectorKey: {clusterCIDR}},
+	}
+
+	logger, _ := ktesting.NewTestContext(t)
+	_, lookupCIDR, err := utilnet.ParseCIDRSloppy("10.0.1.0/24")
+	require.NoError(t, err)
+
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); cidrSet.Occupy(lookupCIDR) }()
+	go func() { defer wg.Done(); cidrSet.Release(lookupCIDR) }()
+	go func() { defer wg.Done(); ra.cidrInAllocatedList(logger, lookupCIDR) }()
+	go func() { defer wg.Done(); ra.cidrOverlapWithAllocatedList(logger, lookupCIDR) }()
+	wg.Wait()
 }
 
 func expectActions(t *testing.T, actions []k8stesting.Action, num int, verb, resource string) {
