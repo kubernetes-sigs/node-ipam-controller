@@ -875,7 +875,7 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *
 			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
 			if err != nil {
 				logger.Error(err, "failed to associate CIDR set")
-				return false
+				continue
 			}
 
 			if cidrSet != nil && cidrSet.CIDRAllocated(cidr) {
@@ -893,7 +893,7 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
 			if err != nil {
 				logger.Error(err, "failed to associate CIDR set")
-				return false
+				continue
 			}
 
 			if cidrSet != nil && cidrSet.CIDROverlaps(cidr) {
