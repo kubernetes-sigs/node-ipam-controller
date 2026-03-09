@@ -950,6 +950,186 @@ func expectMetrics(t *testing.T, label string, em testMetrics) {
 	}
 }
 
+func TestCIDRAllocated(t *testing.T) {
+	cases := []struct {
+		clusterCIDRStr  string
+		perNodeHostBits int
+		description     string
+	}{
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			description:     "IPv4",
+		},
+		{
+			clusterCIDRStr:  "2001:db8::/48",
+			perNodeHostBits: 64,
+			description:     "IPv6",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.description, func(t *testing.T) {
+			_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
+			multiCIDRSet, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			cidr, err := allocateNext(multiCIDRSet)
+			if err != nil {
+				t.Fatalf("failed to allocate: %v", err)
+			}
+			if !multiCIDRSet.CIDRAllocated(cidr) {
+				t.Fatalf("expected CIDR %v to be allocated", cidr)
+			}
+			candidate, _, err := multiCIDRSet.NextCandidate()
+			if err != nil {
+				t.Fatalf("failed to get next CIDR candidate: %v", err)
+			}
+			if multiCIDRSet.CIDRAllocated(candidate) {
+				t.Fatalf("not expected candidate CIDR %v to be allocated", cidr)
+			}
+
+			if err := multiCIDRSet.Release(cidr); err != nil {
+				t.Fatalf("failed to release CIDR: %v", err)
+			}
+			if multiCIDRSet.CIDRAllocated(cidr) {
+				t.Fatalf("expected CIDR %v to not be allocated after release", cidr)
+			}
+		})
+	}
+}
+
+func TestCIDROverlaps(t *testing.T) {
+	cases := []struct {
+		clusterCIDRStr  string
+		perNodeHostBits int
+		occupyCIDRStr   string
+		testCIDRStr     string
+		expectOverlap   bool
+		description     string
+	}{
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			occupyCIDRStr:   "10.0.5.0/24",
+			testCIDRStr:     "10.0.5.0/24",
+			expectOverlap:   true,
+			description:     "IPv4 exact match overlaps",
+		},
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			occupyCIDRStr:   "10.0.5.0/24",
+			testCIDRStr:     "10.0.0.0/16",
+			expectOverlap:   true,
+			description:     "IPv4 larger CIDR containing allocated overlaps",
+		},
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			occupyCIDRStr:   "10.0.5.0/24",
+			testCIDRStr:     "10.0.5.128/25",
+			expectOverlap:   true,
+			description:     "IPv4 smaller CIDR within allocated overlaps",
+		},
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			occupyCIDRStr:   "10.0.5.0/24",
+			testCIDRStr:     "10.0.6.0/24",
+			expectOverlap:   false,
+			description:     "IPv4 non-overlapping CIDR",
+		},
+		{
+			clusterCIDRStr:  "10.0.0.0/16",
+			perNodeHostBits: 8,
+			occupyCIDRStr:   "10.0.5.0/24",
+			testCIDRStr:     "10.0.4.0/22",
+			expectOverlap:   true,
+			description:     "IPv4 broader CIDR that includes allocated",
+		},
+		{
+			clusterCIDRStr:  "2001:db8::/48",
+			perNodeHostBits: 64,
+			occupyCIDRStr:   "2001:db8:0:1::/64",
+			testCIDRStr:     "2001:db8:0:1::/64",
+			expectOverlap:   true,
+			description:     "IPv6 exact match overlaps",
+		},
+		{
+			clusterCIDRStr:  "2001:db8::/48",
+			perNodeHostBits: 64,
+			occupyCIDRStr:   "2001:db8:0:1::/64",
+			testCIDRStr:     "2001:db8:0:2::/64",
+			expectOverlap:   false,
+			description:     "IPv6 non-overlapping CIDR",
+		},
+		{
+			clusterCIDRStr:  "2001:db8::/48",
+			perNodeHostBits: 64,
+			occupyCIDRStr:   "2001:db8:0:1::/64",
+			testCIDRStr:     "2001:db8::/48",
+			expectOverlap:   true,
+			description:     "IPv6 larger CIDR containing allocated overlaps",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.description, func(t *testing.T) {
+			_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(tc.clusterCIDRStr)
+			a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, tc.perNodeHostBits)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			_, occupyCIDR, _ := utilnet.ParseCIDRSloppy(tc.occupyCIDRStr)
+			if err := a.Occupy(occupyCIDR); err != nil {
+				t.Fatalf("unexpected error occupying CIDR: %v", err)
+			}
+
+			_, testCIDR, _ := utilnet.ParseCIDRSloppy(tc.testCIDRStr)
+			got := a.CIDROverlaps(testCIDR)
+			if got != tc.expectOverlap {
+				t.Fatalf("CIDROverlaps(%v) = %v, want %v", testCIDR, got, tc.expectOverlap)
+			}
+		})
+	}
+
+	t.Run("no allocations", func(t *testing.T) {
+		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy("10.0.0.0/16")
+		a, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		_, testCIDR, _ := utilnet.ParseCIDRSloppy("10.0.5.0/24")
+		if a.CIDROverlaps(testCIDR) {
+			t.Fatalf("expected no overlap with empty set")
+		}
+	})
+
+	t.Run("no overlap after release", func(t *testing.T) {
+		_, clusterCIDR, _ := utilnet.ParseCIDRSloppy("10.0.0.0/16")
+		multiCIDRSet, err := NewMultiCIDRSet("test-cluster-cidr", clusterCIDR, 8)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		_, occupyCIDR, _ := utilnet.ParseCIDRSloppy("10.0.5.0/24")
+		if err := multiCIDRSet.Occupy(occupyCIDR); err != nil {
+			t.Fatalf("unexpected error occupying CIDR: %v", err)
+		}
+		_, testCIDR, _ := utilnet.ParseCIDRSloppy("10.0.4.0/22")
+		if !multiCIDRSet.CIDROverlaps(testCIDR) {
+			t.Fatalf("expected overlap before release")
+		}
+		if err := multiCIDRSet.Release(occupyCIDR); err != nil {
+			t.Fatalf("unexpected error releasing CIDR: %v", err)
+		}
+		if multiCIDRSet.CIDROverlaps(testCIDR) {
+			t.Fatalf("expected no overlap after release")
+		}
+	})
+}
+
 // Benchmarks
 func benchmarkAllocateAllIPv6(cidr string, perNodeHostBits int, b *testing.B) {
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(cidr)

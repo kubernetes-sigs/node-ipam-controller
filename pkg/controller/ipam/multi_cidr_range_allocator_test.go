@@ -1862,10 +1862,13 @@ func TestMultiCIDRSetDataRace(t *testing.T) {
 	_, lookupCIDR, err := utilnet.ParseCIDRSloppy("10.0.1.0/24")
 	require.NoError(t, err)
 
-	go cidrSet.Occupy(lookupCIDR)
-	go cidrSet.Release(lookupCIDR)
-	go ra.cidrInAllocatedList(logger, lookupCIDR)
-	go ra.cidrOverlapWithAllocatedList(logger, lookupCIDR)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); cidrSet.Occupy(lookupCIDR) }()
+	go func() { defer wg.Done(); cidrSet.Release(lookupCIDR) }()
+	go func() { defer wg.Done(); ra.cidrInAllocatedList(logger, lookupCIDR) }()
+	go func() { defer wg.Done(); ra.cidrOverlapWithAllocatedList(logger, lookupCIDR) }()
+	wg.Wait()
 }
 
 func expectActions(t *testing.T, actions []k8stesting.Action, num int, verb, resource string) {

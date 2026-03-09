@@ -875,14 +875,15 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *
 			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
 			if err != nil {
 				logger.Error(err, "failed to associate CIDR set")
+				return false
 			}
-			if cidrSet != nil {
-				if ok := cidrSet.AllocatedCIDRMap[cidr.String()]; ok {
-					return true
-				}
+
+			if cidrSet != nil && cidrSet.CIDRAllocated(cidr) {
+				return true
 			}
 		}
 	}
+
 	return false
 }
 
@@ -892,21 +893,15 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
 			if err != nil {
 				logger.Error(err, "failed to associate CIDR set")
+				return false
 			}
-			if cidrSet != nil {
-				for allocated := range cidrSet.AllocatedCIDRMap {
-					_, allocatedCIDR, err := netutil.ParseCIDRSloppy(allocated)
-					if err != nil {
-						logger.Error(err, "failed to parse CIDR", "cidr", allocated)
-						continue
-					}
-					if cidr.Contains(allocatedCIDR.IP.Mask(cidr.Mask)) || allocatedCIDR.Contains(cidr.IP.Mask(allocatedCIDR.Mask)) {
-						return true
-					}
-				}
+
+			if cidrSet != nil && cidrSet.CIDROverlaps(cidr) {
+				return true
 			}
 		}
 	}
+
 	return false
 }
 
