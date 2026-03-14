@@ -42,7 +42,7 @@ allocation.
 
 ### Prerequisites
 
-- Kubernetes cluster v1.26+
+- Kubernetes cluster v1.31+
 - [Helm](https://helm.sh/) v3
 - The cluster's built-in node IPAM controller must be disabled
   (`--allocate-node-cidrs=false` on kube-controller-manager)

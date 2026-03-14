@@ -47,6 +47,7 @@ type ClusterCIDR struct {
 func (in *ClusterCIDR) Default() {}
 
 // ClusterCIDRSpec defines the desired state of ClusterCIDR.
+// +kubebuilder:validation:XValidation:message="A CIDR must be specified for ipv4 or ipv6.",rule="self.ipv4 != '' || self.ipv6 != ''"
 type ClusterCIDRSpec struct {
 	// nodeSelector defines which nodes the config is applicable to.
 	// An empty or nil nodeSelector selects all nodes.
@@ -72,6 +73,7 @@ type ClusterCIDRSpec struct {
 	// This field is optional and immutable.
 	// +optional
 	// +kubebuilder:validation:XValidation:message="IPv4 cannot be changed.",rule="oldSelf == self"
+	// +kubebuilder:validation:XValidation:message="IPv4 must be a valid IPv4 CIDR.",rule="self == '' || (isCIDR(self) && cidr(self).ip().family() == 4)"
 	IPv4 string `json:"ipv4,omitempty"`
 
 	// ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
@@ -79,6 +81,7 @@ type ClusterCIDRSpec struct {
 	// This field is optional and immutable.
 	// +optional
 	// +kubebuilder:validation:XValidation:message="IPv6 cannot be changed.",rule="oldSelf == self"
+	// +kubebuilder:validation:XValidation:message="IPv6 must be a valid IPv6 CIDR.",rule="self == '' || (isCIDR(self) && cidr(self).ip().family() == 6)"
 	IPv6 string `json:"ipv6,omitempty"`
 }
 
