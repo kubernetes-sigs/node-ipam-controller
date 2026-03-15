@@ -209,6 +209,20 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv6 cannot be changed.")))
 	})
 
+	ginkgo.It("should fail when provided invalid CIDR(s)", func() {
+		originalClusterCIDR := makeClusterCIDR("invalid-cidrs-supplied", "", "", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("A CIDR must be specified for ipv4 or ipv6.")))
+
+		originalClusterCIDR = makeClusterCIDR("invalid-ipv4-cidr-supplied", "256.256.256.256/33", "", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv4 must be a valid IPv4 CIDR.")))
+
+		originalClusterCIDR = makeClusterCIDR("invalid-ipv6-cidr-supplied", "", "::/129", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
+		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv6 must be a valid IPv6 CIDR.")))
+	})
+
 	ginkgo.It("should delete ClusterCIDR only after associated node is deleted", func() {
 		// Create a ClusterCIDR.
 		clusterCIDR := makeClusterCIDR("dualstack-cc-del", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}}))
