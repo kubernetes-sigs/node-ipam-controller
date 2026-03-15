@@ -185,7 +185,7 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: A CIDR must be specified for ipv4 or ipv6.
-              rule: self.ipv4 != '' || self.ipv6 != ''
+              rule: self.ipv4 != "" || self.ipv6 != ""
         type: object
     served: true
     storage: true
