@@ -57,6 +57,9 @@ spec:
                 x-kubernetes-validations:
                 - message: IPv4 cannot be changed.
                   rule: oldSelf == self
+                - message: IPv4 must be a valid IPv4 CIDR.
+                  rule: self == '' || (isCIDR(self) && cidr(self).ip().family() ==
+                    4)
               ipv6:
                 description: |-
                   ipv6 defines an IPv6 IP block in CIDR notation(e.g. "2001:db8::/64").
@@ -66,6 +69,9 @@ spec:
                 x-kubernetes-validations:
                 - message: IPv6 cannot be changed.
                   rule: oldSelf == self
+                - message: IPv6 must be a valid IPv6 CIDR.
+                  rule: self == '' || (isCIDR(self) && cidr(self).ip().family() ==
+                    6)
               nodeSelector:
                 description: |-
                   nodeSelector defines which nodes the config is applicable to.
@@ -177,6 +183,9 @@ spec:
             required:
             - perNodeHostBits
             type: object
+            x-kubernetes-validations:
+            - message: A CIDR must be specified for ipv4 or ipv6.
+              rule: self.ipv4 != "" || self.ipv6 != ""
         type: object
     served: true
     storage: true

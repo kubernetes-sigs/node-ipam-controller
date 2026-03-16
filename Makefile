@@ -20,7 +20,7 @@ IMAGE_NAME := node-ipam-controller
 IMAGE_REPO := $(IMAGE_REGISTRY)/$(IMAGE_NAME)
 IMG ?= $(IMAGE_REPO):$(GIT_TAG)
 # ENVTEST_K8S_VERSION refers to the version of kubebuilder assets to be downloaded by envtest binary.
-ENVTEST_K8S_VERSION = 1.27.x
+ENVTEST_K8S_VERSION = 1.31.x
 
 # Use go.mod go version as a single source of truth of GO version.
 GO_VERSION := $(shell awk '/^go /{print $$2}' go.mod|head -n1)
