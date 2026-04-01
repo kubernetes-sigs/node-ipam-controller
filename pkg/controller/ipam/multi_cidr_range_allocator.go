@@ -143,7 +143,7 @@ type multiCIDRRangeAllocator struct {
 
 	// lock guards cidrMap to avoid races in CIDR allocation.
 	lock *sync.Mutex
-	// cidrMap maps ClusterCIDR labels to internal ClusterCIDR objects.
+	// cidrMap maps ClusterCIDR labels to internal ClusterCIDR objects. Protected by lock.
 	cidrMap map[string][]*cidrset.ClusterCIDR
 }
 
@@ -256,6 +256,7 @@ func NewMultiCIDRRangeAllocator(
 		logger.Info("failed to add event handler to clusterCIDRInformer", "err", err)
 	}
 
+	ra.lock.Lock()
 	if allocatorParams.ServiceCIDR != nil {
 		ra.filterOutServiceRange(logger, allocatorParams.ServiceCIDR)
 	} else {
@@ -267,8 +268,10 @@ func NewMultiCIDRRangeAllocator(
 	} else {
 		logger.Info("No Secondary Service CIDR provided. Skipping filtering out secondary service addresses")
 	}
+	ra.lock.Unlock()
 
 	if nodeList != nil {
+		ra.lock.Lock()
 		for _, node := range nodeList.Items {
 			if len(node.Spec.PodCIDRs) == 0 {
 				logger.V(4).Info("Node has no CIDR, ignoring", "node", klog.KObj(&node))
@@ -284,6 +287,7 @@ func NewMultiCIDRRangeAllocator(
 				logger.Info("Node CIDR has no associated ClusterCIDR, skipping", "node", klog.KObj(&node), "error", err)
 			}
 		}
+		ra.lock.Unlock()
 	}
 
 	_, err = nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{

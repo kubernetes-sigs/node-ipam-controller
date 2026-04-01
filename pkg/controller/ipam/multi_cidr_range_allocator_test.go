@@ -1826,8 +1826,10 @@ func TestSyncClusterCIDRDeleteWithNodesAssociated(t *testing.T) {
 
 	// Mock the IPAM controller behavior associating node with ClusterCIDR.
 	nodeSelectorKey, _ := cccController.nodeSelectorKey(testCCC)
+	cccController.lock.Lock()
 	clusterCIDRs := cccController.cidrMap[nodeSelectorKey]
 	clusterCIDRs[0].AssociatedNodes["test-node"] = true
+	cccController.lock.Unlock()
 
 	createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), testCCC.Name, metav1.GetOptions{})
 	assert.Nil(t, err, "Expected no error getting clustercidr object")
@@ -1866,8 +1868,18 @@ func TestMultiCIDRSetDataRace(t *testing.T) {
 	wg.Add(4)
 	go func() { defer wg.Done(); cidrSet.Occupy(lookupCIDR) }()
 	go func() { defer wg.Done(); cidrSet.Release(lookupCIDR) }()
-	go func() { defer wg.Done(); ra.cidrInAllocatedList(logger, lookupCIDR) }()
-	go func() { defer wg.Done(); ra.cidrOverlapWithAllocatedList(logger, lookupCIDR) }()
+	go func() {
+		defer wg.Done()
+		ra.lock.Lock()
+		ra.cidrInAllocatedList(logger, lookupCIDR)
+		ra.lock.Unlock()
+	}()
+	go func() {
+		defer wg.Done()
+		ra.lock.Lock()
+		ra.cidrOverlapWithAllocatedList(logger, lookupCIDR)
+		ra.lock.Unlock()
+	}()
 	wg.Wait()
 }
 
