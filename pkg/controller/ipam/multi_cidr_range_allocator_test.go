@@ -1049,7 +1049,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 					t.Fatalf("%v: unexpected error when parsing CIDR %v: %v", tc.description, allocated, err)
 				}
 
+				rangeAllocator.lock.Lock()
 				clusterCIDRList, err := getClusterCIDRList("node0", rangeAllocator.cidrMap)
+				rangeAllocator.lock.Unlock()
 				if err != nil {
 					t.Fatalf("%v: unexpected error when getting associated clusterCIDR for node %v %v", tc.description, "node0", err)
 				}
@@ -1349,7 +1351,9 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 					t.Fatalf("%v: unexpected error when parsing CIDR %v: %v", tc.description, allocated, err)
 				}
 
+				rangeAllocator.lock.Lock()
 				clusterCIDRList, err := getClusterCIDRList("node0", rangeAllocator.cidrMap)
+				rangeAllocator.lock.Unlock()
 				if err != nil {
 					t.Fatalf("%v: unexpected error when getting associated clusterCIDR for node %v %v", tc.description, "node0", err)
 				}
@@ -1538,7 +1542,9 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 					t.Fatalf("%v: unexpected error when parsing CIDR %v: %v", tc.description, allocated, err)
 				}
 
+				rangeAllocator.lock.Lock()
 				clusterCIDRList, err := getClusterCIDRList("node0", rangeAllocator.cidrMap)
+				rangeAllocator.lock.Unlock()
 				if err != nil {
 					t.Fatalf("%v: unexpected error when getting associated clusterCIDR for node %v %v", tc.description, "node0", err)
 				}
