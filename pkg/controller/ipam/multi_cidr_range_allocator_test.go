@@ -1877,13 +1877,13 @@ func TestMultiCIDRSetDataRace(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		ra.lock.Lock()
-		ra.cidrInAllocatedList(logger, lookupCIDR)
+		ra.cidrInAllocatedList(logger, lookupCIDR, ra.cidrMap)
 		ra.lock.Unlock()
 	}()
 	go func() {
 		defer wg.Done()
 		ra.lock.Lock()
-		ra.cidrOverlapWithAllocatedList(logger, lookupCIDR)
+		ra.cidrOverlapWithAllocatedList(logger, lookupCIDR, ra.cidrMap)
 		ra.lock.Unlock()
 	}()
 	wg.Wait()
