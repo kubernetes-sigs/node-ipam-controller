@@ -24,6 +24,7 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	runtime "k8s.io/apimachinery/pkg/runtime"
+	schema "k8s.io/apimachinery/pkg/runtime/schema"
 	watch "k8s.io/apimachinery/pkg/watch"
 	cache "k8s.io/client-go/tools/cache"
 	apisclustercidrv1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
@@ -33,11 +34,39 @@ import (
 )
 
 // ClusterCIDRInformer provides access to a shared informer and lister for
-// ClusterCIDRs.
+// ClusterCIDRs. Prefer using the type-safe variant (see [TypedClusterCIDRInformer]).
 type ClusterCIDRInformer interface {
 	Informer() cache.SharedIndexInformer
 	Lister() clustercidrv1.ClusterCIDRLister
 }
+
+// TypedClusterCIDRInformer provides access to a shared informer and lister for
+// ClusterCIDRs, including the type-safe TypedInformer variant.
+// It is a superset of ClusterCIDRInformer.
+type TypedClusterCIDRInformer interface {
+	Informer() cache.SharedIndexInformer
+	TypedInformer() ClusterCIDRIndexInformer
+	Lister() clustercidrv1.ClusterCIDRLister
+}
+
+// ClusterCIDRIndexInformer is a wrapper around the underlying [cache.SharedIndexInformer]
+// with type-safe variants of several methods.
+type ClusterCIDRIndexInformer cache.TypedSharedIndexInformer[*apisclustercidrv1.ClusterCIDR]
+
+// ClusterCIDRHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerFuncs] for ClusterCIDR.
+type ClusterCIDRHandlerFuncs = cache.TypedResourceEventHandlerFuncs[*apisclustercidrv1.ClusterCIDR]
+
+// ClusterCIDRDetailedHandlerFuncs is a specialization of [cache.TypedResourceEventHandlerDetailedFuncs] for ClusterCIDR.
+type ClusterCIDRDetailedHandlerFuncs = cache.TypedResourceEventHandlerDetailedFuncs[*apisclustercidrv1.ClusterCIDR]
+
+// ClusterCIDRFilteringHandler is a specialization of [cache.TypedFilteringResourceEventHandler] for ClusterCIDR.
+type ClusterCIDRFilteringHandler = cache.TypedFilteringResourceEventHandler[*apisclustercidrv1.ClusterCIDR]
+
+// ClusterCIDRIndexers is a specialization of [cache.TypedIndexers] for ClusterCIDR.
+type ClusterCIDRIndexers = cache.TypedIndexers[*apisclustercidrv1.ClusterCIDR]
+
+// DeletedClusterCIDR is a specialization of [cache.DeletedObject] for ClusterCIDR.
+type DeletedClusterCIDR = cache.DeletedObject[*apisclustercidrv1.ClusterCIDR]
 
 type clusterCIDRInformer struct {
 	factory          internalinterfaces.SharedInformerFactory
@@ -47,55 +76,132 @@ type clusterCIDRInformer struct {
 // NewClusterCIDRInformer constructs a new informer for ClusterCIDR type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedClusterCIDRInformer]).
 func NewClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers) cache.SharedIndexInformer {
-	return NewFilteredClusterCIDRInformer(client, resyncPeriod, indexers, nil)
+	return NewClusterCIDRInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers})
+}
+
+// NewTypedClusterCIDRInformer constructs a new informer for ClusterCIDR type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Duration, indexers ClusterCIDRIndexers) ClusterCIDRIndexInformer {
+	return NewTypedClusterCIDRInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers)})
 }
 
 // NewFilteredClusterCIDRInformer constructs a new informer for ClusterCIDR type.
 // Always prefer using an informer factory to get a shared informer instead of getting an independent
 // one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedFilteredClusterCIDRInformer]).
 func NewFilteredClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Duration, indexers cache.Indexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) cache.SharedIndexInformer {
-	return cache.NewSharedIndexInformer(
+	return NewTypedClusterCIDRInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: indexers, TweakListOptions: tweakListOptions})
+}
+
+// NewTypedFilteredClusterCIDRInformer constructs a new informer for ClusterCIDR type.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedFilteredClusterCIDRInformer(client versioned.Interface, resyncPeriod time.Duration, indexers ClusterCIDRIndexers, tweakListOptions internalinterfaces.TweakListOptionsFunc) ClusterCIDRIndexInformer {
+	return NewTypedClusterCIDRInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.TypedIndexersToIndexers(indexers), TweakListOptions: tweakListOptions})
+}
+
+// NewClusterCIDRInformerWithOptions constructs a new informer for ClusterCIDR type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+// If you really need an independent one, prefer using the type-safe variant (see [NewTypedClusterCIDRInformerWithOptions]).
+func NewClusterCIDRInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) cache.SharedIndexInformer {
+	return NewTypedClusterCIDRInformerWithOptions(client, options)
+}
+
+// NewTypedClusterCIDRInformerWithOptions constructs a new informer for ClusterCIDR type with additional options.
+// Always prefer using an informer factory to get a shared informer instead of getting an independent
+// one. This reduces memory footprint and number of connections to the server.
+func NewTypedClusterCIDRInformerWithOptions(client versioned.Interface, options internalinterfaces.InformerOptions) ClusterCIDRIndexInformer {
+	gvr := schema.GroupVersionResource{Group: "networking.x-k8s.io", Version: "v1", Resource: "clustercidrs"}
+	identifier := options.InformerName.WithResource(gvr)
+	tweakListOptions := options.TweakListOptions
+	return cache.NewTypedSharedIndexInformer[*apisclustercidrv1.ClusterCIDR](cache.NewSharedIndexInformerWithOptions(
 		cache.ToListWatcherWithWatchListSemantics(&cache.ListWatch{
-			ListFunc: func(options metav1.ListOptions) (runtime.Object, error) {
+			ListFunc: func(opts metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.NetworkingV1().ClusterCIDRs().List(context.Background(), options)
+				return client.NetworkingV1().ClusterCIDRs().List(context.Background(), opts)
 			},
-			WatchFunc: func(options metav1.ListOptions) (watch.Interface, error) {
+			WatchFunc: func(opts metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.NetworkingV1().ClusterCIDRs().Watch(context.Background(), options)
+				return client.NetworkingV1().ClusterCIDRs().Watch(context.Background(), opts)
 			},
-			ListWithContextFunc: func(ctx context.Context, options metav1.ListOptions) (runtime.Object, error) {
+			ListWithContextFunc: func(ctx context.Context, opts metav1.ListOptions) (runtime.Object, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.NetworkingV1().ClusterCIDRs().List(ctx, options)
+				return client.NetworkingV1().ClusterCIDRs().List(ctx, opts)
 			},
-			WatchFuncWithContext: func(ctx context.Context, options metav1.ListOptions) (watch.Interface, error) {
+			WatchFuncWithContext: func(ctx context.Context, opts metav1.ListOptions) (watch.Interface, error) {
 				if tweakListOptions != nil {
-					tweakListOptions(&options)
+					tweakListOptions(&opts)
 				}
-				return client.NetworkingV1().ClusterCIDRs().Watch(ctx, options)
+				return client.NetworkingV1().ClusterCIDRs().Watch(ctx, opts)
 			},
 		}, client),
 		&apisclustercidrv1.ClusterCIDR{},
-		resyncPeriod,
-		indexers,
-	)
+		cache.SharedIndexInformerOptions{
+			ResyncPeriod: options.ResyncPeriod,
+			Indexers:     options.Indexers,
+			Identifier:   identifier,
+		},
+	))
 }
 
 func (f *clusterCIDRInformer) defaultInformer(client versioned.Interface, resyncPeriod time.Duration) cache.SharedIndexInformer {
-	return NewFilteredClusterCIDRInformer(client, resyncPeriod, cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, f.tweakListOptions)
+	return NewTypedClusterCIDRInformerWithOptions(client, internalinterfaces.InformerOptions{ResyncPeriod: resyncPeriod, Indexers: cache.Indexers{cache.NamespaceIndex: cache.MetaNamespaceIndexFunc}, InformerName: f.factory.InformerName(), TweakListOptions: f.tweakListOptions})
 }
 
 func (f *clusterCIDRInformer) Informer() cache.SharedIndexInformer {
-	return f.factory.InformerFor(&apisclustercidrv1.ClusterCIDR{}, f.defaultInformer)
+	return f.TypedInformer()
+}
+
+func (f *clusterCIDRInformer) TypedInformer() ClusterCIDRIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisclustercidrv1.ClusterCIDR](f.factory.InformerFor(&apisclustercidrv1.ClusterCIDR{}, f.defaultInformer))
 }
 
 func (f *clusterCIDRInformer) Lister() clustercidrv1.ClusterCIDRLister {
 	return clustercidrv1.NewClusterCIDRLister(f.Informer().GetIndexer())
+}
+
+// ToTypedClusterCIDRInformer converts an untyped informer into a TypedClusterCIDRInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *ClusterCIDR. If that is not the case, calling type-safe methods of the returned
+// TypedClusterCIDRInformer leads to runtime panics. A safer alternative is to pass
+// around a TypedClusterCIDRInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToTypedClusterCIDRInformer(informer ClusterCIDRInformer) TypedClusterCIDRInformer {
+	if informer, ok := informer.(TypedClusterCIDRInformer); ok {
+		return informer
+	}
+	return &clusterCIDRTypedInformerAdapter{informer}
+}
+
+type clusterCIDRTypedInformerAdapter struct {
+	ClusterCIDRInformer
+}
+
+func (a *clusterCIDRTypedInformerAdapter) TypedInformer() ClusterCIDRIndexInformer {
+	return cache.NewTypedSharedIndexInformer[*apisclustercidrv1.ClusterCIDR](a.Informer())
+}
+
+// ToClusterCIDRIndexInformer converts an untyped informer into a ClusterCIDRIndexInformer.
+//
+// WARNING: this conversion is only safe if the informer handles objects of type
+// *ClusterCIDR. If that is not the case, calling type-safe methods of the returned
+// ClusterCIDRIndexInformer leads to runtime panics. A safer alternative is to pass
+// around a ClusterCIDRIndexInformer instances that was obtained from a
+// SharedInformerFactory.
+func ToClusterCIDRIndexInformer(informer cache.SharedIndexInformer) ClusterCIDRIndexInformer {
+	if informer, ok := informer.(ClusterCIDRIndexInformer); ok {
+		return informer
+	}
+	return cache.NewTypedSharedIndexInformer[*apisclustercidrv1.ClusterCIDR](informer)
 }
