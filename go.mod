@@ -1,6 +1,6 @@
 module sigs.k8s.io/node-ipam-controller
 
-go 1.26.0
+go 1.27.1
 
 require (
 	github.com/evanphx/json-patch/v5 v5.9.11
