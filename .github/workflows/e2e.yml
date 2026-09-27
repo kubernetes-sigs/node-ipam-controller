@@ -133,7 +133,24 @@ jobs:
         helm template charts/node-ipam-controller --values charts/node-ipam-controller/values.yaml --set image.repository=$REGISTRY/$IMAGE_NAME  > temp.yaml
         cat temp.yaml
         /usr/local/bin/kubectl apply -f ./temp.yaml
-        /usr/local/bin/kubectl wait --timeout=1m --for=condition=ready pods -l app.kubernetes.io/name=node-ipam-controller
+        if ! /usr/local/bin/kubectl rollout status deployment/release-name-node-ipam-controller --timeout=1m; then
+          sel=app.kubernetes.io/name=node-ipam-controller
+          echo "::group::describe deploy/rs/pods"
+          /usr/local/bin/kubectl describe deploy,rs,pods -l $sel
+          echo "::endgroup::"
+          echo "::group::yaml deploy/rs/pods"
+          /usr/local/bin/kubectl get deploy,rs,pods -l $sel -o yaml
+          echo "::endgroup::"
+          echo "::group::logs"
+          /usr/local/bin/kubectl logs -l $sel --all-containers --prefix --tail=-1 || true
+          /usr/local/bin/kubectl logs -l $sel --all-containers --prefix --previous || true
+          echo "::endgroup::"
+          echo "::group::events"
+          /usr/local/bin/kubectl get events --sort-by=.lastTimestamp
+          echo "::endgroup::"
+          echo "::error::node-ipam-controller rollout did not complete"
+          exit 1
+        fi
         /usr/local/bin/kubectl get nodes -o wide
         /usr/local/bin/kubectl get pods -A
 
