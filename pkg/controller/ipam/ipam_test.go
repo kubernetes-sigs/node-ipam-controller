@@ -17,7 +17,9 @@ package ipam
 
 import (
 	"context"
+	"maps"
 	"net"
+	"slices"
 	"time"
 
 	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
@@ -446,21 +448,17 @@ func makeNode(name string, labels map[string]string) *corev1.Node {
 	}
 }
 
+// nodeSelector builds a nodeSelector with a single term, so all the labels are
+// ANDed. Keys are sorted so the generated selector is stable across runs.
 func nodeSelector(labels map[string][]string) *corev1.NodeSelector {
-	testNodeSelector := &corev1.NodeSelector{}
-
-	for key, values := range labels {
-		nst := corev1.NodeSelectorTerm{
-			MatchExpressions: []corev1.NodeSelectorRequirement{
-				{
-					Key:      key,
-					Operator: corev1.NodeSelectorOpIn,
-					Values:   values,
-				},
-			},
-		}
-		testNodeSelector.NodeSelectorTerms = append(testNodeSelector.NodeSelectorTerms, nst)
+	term := corev1.NodeSelectorTerm{}
+	for _, key := range slices.Sorted(maps.Keys(labels)) {
+		term.MatchExpressions = append(term.MatchExpressions, corev1.NodeSelectorRequirement{
+			Key:      key,
+			Operator: corev1.NodeSelectorOpIn,
+			Values:   labels[key],
+		})
 	}
 
-	return testNodeSelector
+	return &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{term}}
 }

@@ -27,9 +27,11 @@ import (
 // An PriorityQueueItem is something we manage in a priority queue.
 type PriorityQueueItem struct {
 	clusterCIDR *cidrset.ClusterCIDR
-	// labelMatchCount is the first determinant of priority.
+	// labelMatchCount is the first determinant of priority. It is the number of
+	// requirements in the nodeSelector term that matched the node; when several
+	// terms match, the count comes from the most specific one.
 	labelMatchCount int
-	// selectorString is a string representation of the labelSelector associated with the cidrSet.
+	// selectorString is the serialized nodeSelector associated with the cidrSet.
 	selectorString string
 	// index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.
@@ -44,11 +46,11 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 // Less(i,j) == true denotes i has higher priority than j.
 func (pq PriorityQueue) Less(i, j int) bool {
 	if pq[i].labelMatchCount != pq[j].labelMatchCount {
-		// P0: CidrSet with higher number of matching labels has the highest priority.
+		// P0: CidrSet whose matching nodeSelector term carries more requirements has the highest priority.
 		return pq[i].labelMatchCount > pq[j].labelMatchCount
 	}
 
-	// If the count of matching labels is equal, compare the max allocatable pod CIDRs.
+	// If the requirement count is equal, compare the max allocatable pod CIDRs.
 	if pq[i].maxAllocatable() != pq[j].maxAllocatable() {
 		// P1: CidrSet with fewer allocatable pod CIDRs has higher priority.
 		return pq[i].maxAllocatable() < pq[j].maxAllocatable()
@@ -61,9 +63,9 @@ func (pq PriorityQueue) Less(i, j int) bool {
 		return pq[i].nodeMaskSize() > pq[j].nodeMaskSize()
 	}
 
-	// If the per node mask size are equal compare the CIDR labels.
+	// If the per node mask size are equal compare the nodeSelectors.
 	if pq[i].selectorString != pq[j].selectorString {
-		// P3: CidrSet having label with lower alphanumeric value has higher priority.
+		// P3: CidrSet having a nodeSelector with lower alphanumeric value has higher priority.
 		return pq[i].selectorString < pq[j].selectorString
 	}
 
