@@ -18,8 +18,11 @@ package ipam
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net"
+	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -51,7 +54,7 @@ type testCaseMultiCIDR struct {
 	description     string
 	fakeNodeHandler *test.FakeNodeHandler
 	allocatorParams CIDRAllocatorParams
-	testCIDRMap     map[string][]*multicidrset.ClusterCIDR
+	testCIDRMap     map[string]*clusterCIDRBucket
 	// key is index of the cidr allocated.
 	expectedAllocatedCIDR map[int]string
 	allocatedCIDRs        map[int][]string
@@ -72,29 +75,51 @@ type testNodeSelectorRequirement struct {
 	values   []string
 }
 
-func getTestNodeSelector(requirements []testNodeSelectorRequirement) string {
-	testNodeSelector := &corev1.NodeSelector{}
-
+// makeTestNodeSelector builds a nodeSelector with a single term, so all the
+// requirements are ANDed. Requirements are sorted by key to keep the serialized
+// cidrMap key stable.
+func makeTestNodeSelector(requirements []testNodeSelectorRequirement) *corev1.NodeSelector {
+	term := corev1.NodeSelectorTerm{}
 	for _, nsr := range requirements {
-		nst := corev1.NodeSelectorTerm{
-			MatchExpressions: []corev1.NodeSelectorRequirement{
-				{
-					Key:      nsr.key,
-					Operator: nsr.operator,
-					Values:   nsr.values,
-				},
-			},
-		}
-		testNodeSelector.NodeSelectorTerms = append(testNodeSelector.NodeSelectorTerms, nst)
+		term.MatchExpressions = append(term.MatchExpressions, corev1.NodeSelectorRequirement{
+			Key:      nsr.key,
+			Operator: nsr.operator,
+			Values:   nsr.values,
+		})
 	}
+	slices.SortFunc(term.MatchExpressions, func(a, b corev1.NodeSelectorRequirement) int {
+		return strings.Compare(a.Key, b.Key)
+	})
 
-	selector, _ := nodeSelectorAsSelector(testNodeSelector)
-	return selector.String()
+	return &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{term}}
 }
 
-func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string][]*multicidrset.ClusterCIDR {
-	cidrMap := make(map[string][]*multicidrset.ClusterCIDR, 0)
-	for labels, testClusterCIDRList := range testClusterCIDRMap {
+func getTestNodeSelector(requirements []testNodeSelectorRequirement) string {
+	return getTestNodeSelectorKey(makeTestNodeSelector(requirements))
+}
+
+func getTestNodeSelectorKey(nodeSelector *corev1.NodeSelector) string {
+	key, err := nodeSelectorKey(nodeSelector)
+	if err != nil {
+		panic(err)
+	}
+	return key
+}
+
+func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string]*clusterCIDRBucket {
+	cidrMap := make(map[string]*clusterCIDRBucket)
+	for key, testClusterCIDRList := range testClusterCIDRMap {
+		// The map is keyed by the serialized nodeSelector, so the matcher can be
+		// rebuilt from the key.
+		nodeSelector := &corev1.NodeSelector{}
+		if err := json.Unmarshal([]byte(key), nodeSelector); err != nil {
+			panic(err)
+		}
+		matcher, err := newNodeSelectorMatcher(nodeSelector)
+		if err != nil {
+			panic(err)
+		}
+
 		clusterCIDRList := make([]*multicidrset.ClusterCIDR, 0)
 		for _, testClusterCIDR := range testClusterCIDRList {
 			clusterCIDR := &multicidrset.ClusterCIDR{
@@ -114,12 +139,12 @@ func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string
 			}
 			clusterCIDRList = append(clusterCIDRList, clusterCIDR)
 		}
-		cidrMap[labels] = clusterCIDRList
+		cidrMap[key] = &clusterCIDRBucket{matcher: matcher, cidrs: clusterCIDRList}
 	}
 	return cidrMap
 }
 
-func getClusterCIDRList(nodeName string, cidrMap map[string][]*multicidrset.ClusterCIDR) ([]*multicidrset.ClusterCIDR, error) {
+func getClusterCIDRList(nodeName string, cidrMap map[string]*clusterCIDRBucket) ([]*multicidrset.ClusterCIDR, error) {
 	labelSelector := getTestNodeSelector([]testNodeSelectorRequirement{
 		{
 			key:      "testLabel-0",
@@ -127,8 +152,8 @@ func getClusterCIDRList(nodeName string, cidrMap map[string][]*multicidrset.Clus
 			values:   []string{nodeName},
 		},
 	})
-	if clusterCIDRList, ok := cidrMap[labelSelector]; ok {
-		return clusterCIDRList, nil
+	if bucket, ok := cidrMap[labelSelector]; ok {
+		return bucket.cidrs, nil
 	}
 	return nil, fmt.Errorf("unable to get clusterCIDR for node: %s", nodeName)
 }
@@ -1406,7 +1431,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 type releasetestCaseMultiCIDR struct {
 	description                      string
 	fakeNodeHandler                  *test.FakeNodeHandler
-	testCIDRMap                      map[string][]*multicidrset.ClusterCIDR
+	testCIDRMap                      map[string]*clusterCIDRBucket
 	allocatorParams                  CIDRAllocatorParams
 	expectedAllocatedCIDRFirstRound  map[int]string
 	expectedAllocatedCIDRSecondRound map[int]string
@@ -1678,7 +1703,7 @@ func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMCo
 		SecondaryServiceCIDR: nil,
 		NodeCIDRMaskSizes:    []int{24},
 	}
-	testCIDRMap := make(map[string][]*multicidrset.ClusterCIDR, 0)
+	testCIDRMap := make(map[string]*clusterCIDRBucket)
 
 	// Initialize the range allocator.
 	ra, _ := NewMultiCIDRRangeAllocator(ctx, nodeClient, client.NetworkingV1().ClusterCIDRs(), nodeInformer, cccInformer, allocatorParams, nil, testCIDRMap)
@@ -1831,9 +1856,9 @@ func TestSyncClusterCIDRDeleteWithNodesAssociated(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Mock the IPAM controller behavior associating node with ClusterCIDR.
-	nodeSelectorKey, _ := cccController.nodeSelectorKey(testCCC)
+	key, _ := nodeSelectorKey(testCCC.Spec.NodeSelector)
 	cccController.lock.Lock()
-	clusterCIDRs := cccController.cidrMap[nodeSelectorKey]
+	clusterCIDRs := cccController.cidrMap[key].cidrs
 	clusterCIDRs[0].AssociatedNodes["test-node"] = true
 	cccController.lock.Unlock()
 
@@ -1863,7 +1888,7 @@ func TestMultiCIDRSetDataRace(t *testing.T) {
 	selectorKey := "race-selector"
 	ra := &multiCIDRRangeAllocator{
 		lock:    &sync.Mutex{},
-		cidrMap: map[string][]*multicidrset.ClusterCIDR{selectorKey: {clusterCIDR}},
+		cidrMap: map[string]*clusterCIDRBucket{selectorKey: {cidrs: []*multicidrset.ClusterCIDR{clusterCIDR}}},
 	}
 
 	logger, _ := ktesting.NewTestContext(t)
@@ -2011,4 +2036,298 @@ func TestHandleNodeDeleteWithTombstone(t *testing.T) {
 			})
 		})
 	}
+}
+
+func testNode(name string, labels map[string]string) *corev1.Node {
+	return &corev1.Node{ObjectMeta: metav1.ObjectMeta{Name: name, Labels: labels}}
+}
+
+func matchExpression(key string, op corev1.NodeSelectorOperator, values ...string) corev1.NodeSelectorRequirement {
+	return corev1.NodeSelectorRequirement{Key: key, Operator: op, Values: values}
+}
+
+// TestNodeSelectorMatcher covers the NodeSelector semantics the allocator used
+// to get wrong: terms are ORed, requirements within a term are ANDed, an empty
+// term matches nothing, and matchFields is matched against Node fields rather
+// than Node labels.
+func TestNodeSelectorMatcher(t *testing.T) {
+	inZoneA := matchExpression("zone", corev1.NodeSelectorOpIn, "a")
+	inRackR1 := matchExpression("rack", corev1.NodeSelectorOpIn, "r1")
+	isNode1 := matchExpression("metadata.name", corev1.NodeSelectorOpIn, "node1")
+
+	node := testNode("node1", map[string]string{"zone": "a", "rack": "r1"})
+
+	testCases := []struct {
+		description  string
+		nodeSelector *corev1.NodeSelector
+		node         *corev1.Node
+		wantMatch    bool
+		wantReqCount int
+	}{
+		{
+			description:  "nil nodeSelector selects every node",
+			nodeSelector: nil,
+			node:         node,
+			wantMatch:    true,
+		},
+		{
+			description:  "nodeSelector without terms selects every node",
+			nodeSelector: &corev1.NodeSelector{},
+			node:         node,
+			wantMatch:    true,
+		},
+		{
+			description: "requirements within a term are ANDed, all satisfied",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA, inRackR1}},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 2,
+		},
+		{
+			description: "requirements within a term are ANDed, one unsatisfied",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{
+					inZoneA,
+					matchExpression("rack", corev1.NodeSelectorOpIn, "r2"),
+				}},
+			}},
+			node:      node,
+			wantMatch: false,
+		},
+		{
+			description: "terms are ORed, only the second term matches",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "b")}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inRackR1}},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 1,
+		},
+		{
+			description: "terms are ORed, no term matches",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "b")}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("rack", corev1.NodeSelectorOpIn, "r2")}},
+			}},
+			node:      node,
+			wantMatch: false,
+		},
+		{
+			description: "several terms match, the most specific one sets the requirement count",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA, inRackR1}},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 2,
+		},
+		{
+			description: "requirement count does not depend on term order",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA, inRackR1}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA}},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 2,
+		},
+		{
+			description: "an empty term matches nothing",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{},
+			}},
+			node:      node,
+			wantMatch: false,
+		},
+		{
+			description: "an empty term does not rescue a non-matching sibling term",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "b")}},
+			}},
+			node:      node,
+			wantMatch: false,
+		},
+		{
+			description: "matchFields is matched against the node name",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{isNode1}},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 1,
+		},
+		{
+			description: "matchFields does not match a different node name",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{isNode1}},
+			}},
+			node:      testNode("node2", map[string]string{"zone": "a"}),
+			wantMatch: false,
+		},
+		{
+			description: "matchFields is not satisfied by a label of the same name",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{isNode1}},
+			}},
+			node:      testNode("node2", map[string]string{"metadata.name": "node1"}),
+			wantMatch: false,
+		},
+		{
+			description: "matchFields and matchExpressions in one term are ANDed",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA},
+					MatchFields:      []corev1.NodeSelectorRequirement{isNode1},
+				},
+			}},
+			node:         node,
+			wantMatch:    true,
+			wantReqCount: 2,
+		},
+		{
+			description: "matchFields and matchExpressions in one term are ANDed, field unsatisfied",
+			nodeSelector: &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{
+					MatchExpressions: []corev1.NodeSelectorRequirement{inZoneA},
+					MatchFields:      []corev1.NodeSelectorRequirement{matchExpression("metadata.name", corev1.NodeSelectorOpIn, "node2")},
+				},
+			}},
+			node:      node,
+			wantMatch: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			matcher, err := newNodeSelectorMatcher(tc.nodeSelector)
+			require.NoError(t, err)
+
+			match, reqCount := matcher.match(tc.node)
+			assert.Equal(t, tc.wantMatch, match)
+			assert.Equal(t, tc.wantReqCount, reqCount)
+		})
+	}
+}
+
+func TestNodeSelectorMatcherInvalidOperator(t *testing.T) {
+	_, err := newNodeSelectorMatcher(&corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", "Nonsense", "a")}},
+	}})
+	assert.Error(t, err)
+}
+
+// TestNodeSelectorKey checks that the cidrMap key round-trips the term
+// structure, which a flattened labels.Selector string would lose.
+func TestNodeSelectorKey(t *testing.T) {
+	oneTerm := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{
+			matchExpression("zone", corev1.NodeSelectorOpIn, "a"),
+			matchExpression("rack", corev1.NodeSelectorOpIn, "r1"),
+		}},
+	}}
+	twoTerms := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "a")}},
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("rack", corev1.NodeSelectorOpIn, "r1")}},
+	}}
+
+	assert.NotEqual(t, getTestNodeSelectorKey(oneTerm), getTestNodeSelectorKey(twoTerms),
+		"ANDed and ORed selectors must not share a cidrMap key")
+
+	// A nil selector and an explicitly empty one both select every node.
+	assert.Equal(t, getTestNodeSelectorKey(nil), getTestNodeSelectorKey(&corev1.NodeSelector{}))
+}
+
+func makeTestBucket(t *testing.T, name, cidr string, nodeSelector *corev1.NodeSelector) (string, *clusterCIDRBucket) {
+	t.Helper()
+
+	_, ipnet, err := utilnet.ParseCIDRSloppy(cidr)
+	require.NoError(t, err)
+	cidrSet, err := multicidrset.NewMultiCIDRSet(name, ipnet, 8)
+	require.NoError(t, err)
+	matcher, err := newNodeSelectorMatcher(nodeSelector)
+	require.NoError(t, err)
+
+	return getTestNodeSelectorKey(nodeSelector), &clusterCIDRBucket{
+		matcher: matcher,
+		cidrs: []*multicidrset.ClusterCIDR{{
+			Name:            name,
+			IPv4CIDRSet:     cidrSet,
+			AssociatedNodes: make(map[string]bool),
+		}},
+	}
+}
+
+func matchedClusterCIDRNames(node *corev1.Node, cidrMap map[string]*clusterCIDRBucket) []string {
+	r := &multiCIDRRangeAllocator{}
+
+	names := make([]string, 0)
+	for _, clusterCIDR := range r.orderedMatchingClusterCIDRs(node, true, cidrMap) {
+		names = append(names, clusterCIDR.Name)
+	}
+	return names
+}
+
+// TestOrderedMatchingClusterCIDRsNodeSelectors checks that the cidrMap key and
+// the compiled matcher stay in step, so a ClusterCIDR whose nodeSelector needs
+// term structure (ORed terms, matchFields) is still selected and ranked. The
+// CIDRs are all the same size, so P0 alone decides the order.
+func TestOrderedMatchingClusterCIDRsNodeSelectors(t *testing.T) {
+	andTwo := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{
+			matchExpression("zone", corev1.NodeSelectorOpIn, "a"),
+			matchExpression("rack", corev1.NodeSelectorOpIn, "r1"),
+		}},
+	}}
+	orOne := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "b")}},
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("rack", corev1.NodeSelectorOpIn, "r1")}},
+	}}
+	noMatch := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchExpressions: []corev1.NodeSelectorRequirement{matchExpression("zone", corev1.NodeSelectorOpIn, "b")}},
+	}}
+
+	cidrMap := make(map[string]*clusterCIDRBucket)
+	for _, b := range []struct {
+		name         string
+		cidr         string
+		nodeSelector *corev1.NodeSelector
+	}{
+		{"and-two-reqs", "10.0.0.0/16", andTwo},
+		{"or-one-req", "10.1.0.0/16", orOne},
+		{"match-all", "10.2.0.0/16", nil},
+		{"no-match", "10.3.0.0/16", noMatch},
+	} {
+		key, bucket := makeTestBucket(t, b.name, b.cidr, b.nodeSelector)
+		cidrMap[key] = bucket
+	}
+
+	node := testNode("node1", map[string]string{"zone": "a", "rack": "r1"})
+	// or-one-req matches through its second term, which the old flattened
+	// selector would have ANDed into an impossible requirement set.
+	assert.Equal(t, []string{"and-two-reqs", "or-one-req", "match-all"}, matchedClusterCIDRNames(node, cidrMap))
+
+	// A node that satisfies neither labelled selector still gets the nil-selector pool.
+	other := testNode("node2", map[string]string{"zone": "c"})
+	assert.Equal(t, []string{"match-all"}, matchedClusterCIDRNames(other, cidrMap))
+}
+
+// TestOrderedMatchingClusterCIDRsMatchFields checks that matchFields selects on
+// the node name rather than on a node label of the same name.
+func TestOrderedMatchingClusterCIDRsMatchFields(t *testing.T) {
+	byName := &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+		{MatchFields: []corev1.NodeSelectorRequirement{
+			matchExpression("metadata.name", corev1.NodeSelectorOpIn, "node1"),
+		}},
+	}}
+
+	key, bucket := makeTestBucket(t, "by-node-name", "10.0.0.0/16", byName)
+	cidrMap := map[string]*clusterCIDRBucket{key: bucket}
+
+	assert.Equal(t, []string{"by-node-name"}, matchedClusterCIDRNames(testNode("node1", nil), cidrMap))
+	assert.Empty(t, matchedClusterCIDRNames(testNode("node2", map[string]string{"metadata.name": "node1"}), cidrMap))
 }
