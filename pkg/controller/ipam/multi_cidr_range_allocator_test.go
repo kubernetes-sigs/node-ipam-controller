@@ -312,7 +312,7 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 			fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 			fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
 			nodeList, _ := tc.fakeNodeHandler.List(context.TODO(), metav1.ListOptions{})
-			fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+			fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
 			_, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, fakeNodeInformer, fakeClusterCIDRInformer, tc.allocatorParams, nodeList, tc.testCIDRMap)
 			if err == nil && tc.ctrlCreateFail {
 				t.Fatalf("creating range allocator was expected to fail, but it did not")
@@ -320,6 +320,119 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 			if err != nil && !tc.ctrlCreateFail {
 				t.Fatalf("creating range allocator was expected to succeed, but it did not")
 			}
+		})
+	}
+}
+
+func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
+	catchAllSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
+	require.NoError(t, err)
+	nodeName := "testNode"
+	labelKey := "testLabel"
+	testNodeSelector := getTestNodeSelector([]testNodeSelectorRequirement{
+		{
+			key:      labelKey,
+			operator: corev1.NodeSelectorOpIn,
+			values:   []string{nodeName},
+		},
+	})
+
+	testCases := []struct {
+		description string
+		podCIDRs    []string
+		catchAll    *testClusterCIDR
+		selecting   *testClusterCIDR
+	}{
+		{
+			description: "original single stack node, new IPv6 only ClusterCIDR",
+			podCIDRs:    []string{"10.10.0.0/24"},
+			catchAll:    &testClusterCIDR{name: "catch-all", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16"},
+			selecting:   &testClusterCIDR{name: "ipv6-only", perNodeHostBits: 8, ipv6CIDR: "fd00:10::/112"},
+		},
+		{
+			description: "original dual stack node, new IPv6 only ClusterCIDR",
+			podCIDRs:    []string{"10.10.0.0/24", "ace:cab:deca::/120"},
+			catchAll: &testClusterCIDR{
+				name: "catch-all", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16", ipv6CIDR: "ace:cab:deca::/112",
+			},
+			selecting: &testClusterCIDR{name: "ipv6-only", perNodeHostBits: 8, ipv6CIDR: "fd00:10::/112"},
+		},
+		{
+			description: "original dual stack node, new IPv4 only ClusterCIDR containing the IPv4 Pod CIDR",
+			podCIDRs:    []string{"10.10.0.0/24", "ace:cab:deca::/120"},
+			catchAll: &testClusterCIDR{
+				name: "catch-all", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16", ipv6CIDR: "ace:cab:deca::/112",
+			},
+			selecting: &testClusterCIDR{name: "ipv4-only", perNodeHostBits: 8, ipv4CIDR: "10.0.0.0/8"},
+		},
+		{
+			description: "original dual stack node, new IPv4 only ClusterCIDR not containing the IPv4 Pod CIDR",
+			podCIDRs:    []string{"10.10.0.0/24", "ace:cab:deca::/120"},
+			catchAll: &testClusterCIDR{
+				name: "catch-all", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16", ipv6CIDR: "ace:cab:deca::/112",
+			},
+			selecting: &testClusterCIDR{name: "ipv4-only", perNodeHostBits: 8, ipv4CIDR: "10.20.0.0/16"},
+		},
+	}
+
+	for _, tc := range testCases {
+		node := &corev1.Node{
+			Name: nodeName,
+			Labels: map[string]string{
+				labelKey: nodeName,
+			},
+			Spec: corev1.NodeSpec{
+				PodCIDRs: tc.podCIDRs,
+			},
+		}
+		newCIDRMap := func() map[string][]*multicidrset.ClusterCIDR {
+			return getTestCidrMap(map[string][]*testClusterCIDR{
+				catchAllSelector.String(): {tc.catchAll},
+				testNodeSelector:          {tc.selecting},
+			})
+		}
+		newAllocator := func(
+			ctx context.Context, nodeList *corev1.NodeList, cidrMap map[string][]*multicidrset.ClusterCIDR,
+		) (CIDRAllocator, error) {
+			fakeNodeHandler := &test.FakeNodeHandler{
+				Existing:  []*corev1.Node{node},
+				Clientset: fake.NewClientset(),
+			}
+			fakeNodeInformer := test.FakeNodeInformer(fakeNodeHandler)
+			fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(
+				&clustercidrfake.Clientset{}, NoResyncPeriodFunc(),
+			)
+			fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
+			fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
+			return NewMultiCIDRRangeAllocator(
+				ctx, fakeNodeHandler, fakeCIDRClient, fakeNodeInformer,
+				fakeClusterCIDRInformer, CIDRAllocatorParams{}, nodeList, cidrMap,
+			)
+		}
+
+		t.Run(tc.description+", at startup", func(t *testing.T) {
+			_, ctx := ktesting.NewTestContext(t)
+			cidrMap := newCIDRMap()
+
+			assert.NotPanics(t, func() {
+				_, err := newAllocator(ctx, &corev1.NodeList{Items: []corev1.Node{*node}}, cidrMap)
+				assert.NoError(t, err)
+			})
+			assert.True(t, cidrMap[catchAllSelector.String()][0].AssociatedNodes[node.Name],
+				"node is not associated with the catch all ClusterCIDR")
+		})
+
+		t.Run(tc.description+", on node sync", func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			cidrMap := newCIDRMap()
+			allocator, err := newAllocator(ctx, &corev1.NodeList{}, cidrMap)
+			require.NoError(t, err)
+
+			assert.NotPanics(t, func() {
+				assert.NoError(t, allocator.AllocateOrOccupyCIDR(logger, node))
+			})
+			assert.True(t, cidrMap[catchAllSelector.String()][0].AssociatedNodes[node.Name],
+				"node is not associated with the catch all ClusterCIDR")
 		})
 	}
 }
@@ -1024,7 +1137,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
 		allocator, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nodeList, tc.testCIDRMap)
 		if err != nil {
 			t.Errorf("%v: failed to create CIDRRangeAllocator with error %v", tc.description, err)
@@ -1328,7 +1441,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
 		// Initialize the range allocator.
 		allocator, err := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nil, tc.testCIDRMap)
 		if err != nil {
@@ -1523,7 +1636,7 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 		fakeClient := &clustercidrfake.Clientset{}
 		fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 		fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+		fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
 		// Initialize the range allocator.
 		allocator, _ := NewMultiCIDRRangeAllocator(ctx, tc.fakeNodeHandler, fakeCIDRClient, test.FakeNodeInformer(tc.fakeNodeHandler), fakeClusterCIDRInformer, tc.allocatorParams, nil, tc.testCIDRMap)
 		rangeAllocator, ok := allocator.(*multiCIDRRangeAllocator)
@@ -1637,7 +1750,7 @@ type nodeIPAMController struct {
 }
 
 func newController(ctx context.Context) (*clustercidrfake.Clientset, *nodeIPAMController) {
-	client := clustercidrfake.NewSimpleClientset() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+	client := clustercidrfake.NewSimpleClientset()
 	informerFactory := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc())
 	cccInformer := informerFactory.Networking().V1().ClusterCIDRs()
 
@@ -1946,7 +2059,7 @@ func TestHandleNodeDeleteWithTombstone(t *testing.T) {
 	fakeClient := &clustercidrfake.Clientset{}
 	fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(fakeClient, NoResyncPeriodFunc())
 	fakeClusterCIDRInformer := fakeInformerFactory.Networking().V1().ClusterCIDRs()
-	fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs() //nolint:staticcheck // see https://github.com/kubernetes/kubernetes/issues/126850
+	fakeCIDRClient := clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs()
 
 	allocatorParams := CIDRAllocatorParams{
 		ServiceCIDR:          nil,

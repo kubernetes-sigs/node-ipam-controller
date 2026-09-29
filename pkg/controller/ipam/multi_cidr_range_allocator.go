@@ -536,18 +536,28 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
 	}
 
+	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
+	for _, cidr := range node.Spec.PodCIDRs {
+		_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
+		}
+		podCIDRs = append(podCIDRs, podCIDR)
+	}
+
 	attempts := 0
 	for _, clusterCIDR := range clusterCIDRList {
 		occupiedCount := 0
 		attempts++
 
-		for _, cidr := range node.Spec.PodCIDRs {
-			_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
-			if err != nil {
-				return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
-			}
+		if !hasCIDRSetsFor(clusterCIDR, podCIDRs) {
+			logger.V(3).Info("ClusterCIDR lacks the IP family of a node CIDR, trying next range",
+				"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
+			continue
+		}
 
-			logger.Info("occupy CIDR for node", "CIDR", cidr, "node", klog.KObj(node))
+		for _, podCIDR := range podCIDRs {
+			logger.Info("occupy CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node))
 
 			if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
 				logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
@@ -565,6 +575,19 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	}
 
 	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
+}
+
+// hasCIDRSetsFor returns whether the ClusterCIDR has a CIDRSet for the IP family of every CIDR.
+func hasCIDRSetsFor(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
+	for _, cidr := range cidrs {
+		if netutil.IsIPv4CIDR(cidr) && clusterCIDR.IPv4CIDRSet == nil {
+			return false
+		}
+		if netutil.IsIPv6CIDR(cidr) && clusterCIDR.IPv6CIDRSet == nil {
+			return false
+		}
+	}
+	return true
 }
 
 // associatedCIDRSet returns the CIDRSet, based on the ip family of the CIDR.
@@ -585,6 +608,9 @@ func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr 
 	if err != nil {
 		return err
 	}
+	if currCIDRSet == nil {
+		return fmt.Errorf("clusterCIDR %q has no CIDR of the IP family of %v", clusterCIDR.Name, cidr)
+	}
 
 	if err := currCIDRSet.Occupy(cidr); err != nil {
 		return fmt.Errorf("unable to occupy cidr %v in cidrSet: %w", cidr, err)
@@ -599,6 +625,9 @@ func (r *multiCIDRRangeAllocator) Release(logger klog.Logger, clusterCIDR *cidrs
 	currCIDRSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
 	if err != nil {
 		return err
+	}
+	if currCIDRSet == nil {
+		return fmt.Errorf("clusterCIDR %q has no CIDR of the IP family of %v", clusterCIDR.Name, cidr)
 	}
 
 	if err := currCIDRSet.Release(cidr); err != nil {
