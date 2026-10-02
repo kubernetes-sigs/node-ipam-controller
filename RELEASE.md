@@ -1,3 +1,3 @@
 # Release Process
 
-TBD
+See [MAINTENANCE.md](./MAINTENANCE.md#release--promotion-process).
