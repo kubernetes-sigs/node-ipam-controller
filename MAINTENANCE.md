@@ -218,8 +218,12 @@ The digests must match the staging ones.
 ### Publish the GitHub Release & Announce
 
 1. Publish the draft release and link it in the release issue.
-2. Announce the release in
+2. Open a PR against `main` that updates `--version` in the
+   [README install command](./README.md#installation) to the new release. The
+   first release also switches the command from the local chart to
+   `oci://registry.k8s.io/networking/charts/node-ipam-controller`.
+3. Announce the release in
    [`#sig-network`](https://kubernetes.slack.com/messages/sig-network) and on
    the [SIG Network mailing list](https://groups.google.com/a/kubernetes.io/g/sig-network)
    with the subject `[ANNOUNCE] node-ipam-controller v0.3.0 is released`.
-3. Close the release issue.
+4. Close the release issue.

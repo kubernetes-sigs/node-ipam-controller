@@ -35,6 +35,8 @@ for details on each step.
   - [ ] `helm show chart oci://registry.k8s.io/networking/charts/node-ipam-controller --version $MAJ.$MIN.$PATCH`
 - [ ] Publish the draft release
   - Release: \<Insert your release here\>
+- [ ] Update `--version` in the [README install command](https://github.com/kubernetes-sigs/node-ipam-controller/blob/main/README.md#installation) to `$MAJ.$MIN.$PATCH`
+  - PR: \<Insert your PR here\>
 - [ ] Announce the release in [#sig-network](https://kubernetes.slack.com/messages/sig-network) and on the [SIG Network mailing list](https://groups.google.com/a/kubernetes.io/g/sig-network) with the subject `[ANNOUNCE] node-ipam-controller v$MAJ.$MIN.$PATCH is released`
   - Announcement: \<Insert your announcement here\>
 - [ ] Close this issue
