@@ -25,7 +25,7 @@ leaderElection:
 # resourceName: "node-ipam-controller"
 
 image:
-  repository: registry.k8s.io/node-ipam-controller
+  repository: registry.k8s.io/networking/node-ipam-controller
   pullPolicy: IfNotPresent
   tag: ""
 

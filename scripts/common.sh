@@ -25,7 +25,7 @@ DEFAULT_KUBECONFIG_PATH="${SCRIPT_PATH}/../hack/test/kind/node-ipam-controller-l
 : ${IMG_TAG:="test"}
 
 export KUBECONFIG="${TEST_ENV_KUBECONFIG_PATH}"
-export IMG="registry.k8s.io/node-ipam-controller:${IMG_TAG}"
+export IMG="registry.k8s.io/networking/node-ipam-controller:${IMG_TAG}"
 
 
 function help {
