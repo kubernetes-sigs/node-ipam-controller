@@ -32,3 +32,6 @@ go.work
 .envrc
 
 hack/test/kind/node-ipam-controller-local-test-env.yaml
+
+# Build output
+_output/

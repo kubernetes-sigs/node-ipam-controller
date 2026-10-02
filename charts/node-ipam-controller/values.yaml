@@ -25,8 +25,9 @@ leaderElection:
 # resourceName: "node-ipam-controller"
 
 image:
-  repository: registry.k8s.io/node-ipam-controller
+  repository: registry.k8s.io/networking/node-ipam-controller
   pullPolicy: IfNotPresent
+  # Defaults to .Chart.AppVersion, which `make helm-package` sets to the release tag.
   tag: ""
 
 nameOverride: ""

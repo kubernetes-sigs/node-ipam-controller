@@ -155,6 +155,40 @@ docker-buildx: ## Build and push docker image for node-ipam-controller for cross
 	- $(CONTAINER_TOOL) buildx rm project-v3-builder
 	rm Dockerfile.cross
 
+##@ Release
+
+LOCALBIN ?= $(CURDIR)/bin
+HELM_VERSION ?= v3.22.0
+HELM ?= $(LOCALBIN)/helm-$(HELM_VERSION)
+CHART_DIR := charts/node-ipam-controller
+CHART_OUT_DIR ?= _output/charts
+CHART_REGISTRY ?= $(IMAGE_REGISTRY)/charts
+# The chart is versioned by the git tag: v0.3.0 is packaged as chart 0.3.0 with
+# appVersion v0.3.0. Between releases it is a semver pre-release, e.g.
+# 0.2.0-314-g116f89c.
+CHART_APP_VERSION ?= $(shell git describe --tags --always --dirty)
+CHART_VERSION ?= $(patsubst v%,%,$(CHART_APP_VERSION))
+
+.PHONY: ensure-helm
+ensure-helm: $(HELM)
+$(HELM):
+	GOBIN=$(LOCALBIN) go install helm.sh/helm/v3/cmd/helm@$(HELM_VERSION)
+	mv $(LOCALBIN)/helm $(HELM)
+
+.PHONY: helm-package
+helm-package: ensure-helm ## Package the Helm chart.
+	$(HELM) package $(CHART_DIR) \
+		--version $(CHART_VERSION) \
+		--app-version $(CHART_APP_VERSION) \
+		--destination $(CHART_OUT_DIR)
+
+.PHONY: helm-push
+helm-push: helm-package ## Push the Helm chart to the OCI registry.
+	$(HELM) push $(CHART_OUT_DIR)/node-ipam-controller-$(CHART_VERSION).tgz oci://$(CHART_REGISTRY)
+
+.PHONY: release
+release: image-push helm-push ## Push the image and the Helm chart (run by Cloud Build).
+
 .PHONY: setup-test-env
 setup-test-env: ## Setup test environment
 	./scripts/up.sh

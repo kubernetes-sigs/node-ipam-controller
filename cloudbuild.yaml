@@ -18,15 +18,16 @@ timeout: 3000s
 # For each build step, Prow executes a job.
 steps:
   # see https://github.com/kubernetes/test-infra/tree/master/config/jobs/image-pushing
-  - name: gcr.io/k8s-staging-test-infra/gcb-docker-gcloud:latest
-    entrypoint: make
+  # The image entrypoint sets up a multi-arch buildx builder before running args,
+  # see https://github.com/kubernetes/release/tree/master/images/releng/gcb-docker-gcloud
+  - name: registry.k8s.io/releng/gcb-docker-gcloud:v20260806
     args:
-      - image-push
+      - make
+      - release
     env:
       - IMAGE_REGISTRY=gcr.io/$PROJECT_ID
       - GIT_TAG=$_GIT_TAG
       - EXTRA_TAG=$_PULL_BASE_REF
-      - DOCKER_BUILDX_CMD=/buildx-entrypoint
 substitutions:
   # _GIT_TAG will be filled with a git-based tag for the image, of the form vYYYYMMDD-hash, and
   # can be used as a substitution
