@@ -1,0 +1,10 @@
+# Categories for GitHub generated release notes, see
+# https://docs.github.com/en/repositories/releasing-projects-on-github/automatically-generated-release-notes
+changelog:
+  categories:
+    - title: Dependency Updates
+      labels:
+        - area/dependency
+    - title: Changes
+      labels:
+        - "*"
