@@ -11,6 +11,7 @@ updates:
     labels:
       - "area/dependency"
       - "ok-to-test"
+      - "release-note-none"
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -19,6 +20,7 @@ updates:
     labels:
       - "area/dependency"
       - "ok-to-test"
+      - "release-note-none"
 
   - package-ecosystem: "docker"
     directory: "/"
@@ -27,3 +29,4 @@ updates:
     labels:
       - "area/dependency"
       - "ok-to-test"
+      - "release-note-none"
