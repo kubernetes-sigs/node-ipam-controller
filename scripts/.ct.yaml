@@ -15,7 +15,11 @@
 
 debug: false
 target-branch: main
-check-version-increment: true
+# The chart version is set from the git tag at release time (make helm-package),
+# not bumped in Chart.yaml.
+check-version-increment: false
+# Maintainers are tracked in OWNERS, not in Chart.yaml.
+validate-maintainers: false
 chart-dirs:
   - charts
 helm-extra-args: --timeout 100s
