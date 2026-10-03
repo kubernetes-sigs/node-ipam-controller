@@ -116,6 +116,14 @@ spec:
         operator: Exists
 ```
 
+The `nodeSelector` follows the same rules as a Pod's `nodeAffinity`. The terms
+under `nodeSelectorTerms` are ORed, so a Node matches when any one term matches.
+Within a term every `matchExpressions` and `matchFields` entry must hold, and an
+empty term matches no Node. `matchFields` is evaluated against Node fields
+(`metadata.name`), not Node labels. A ClusterCIDR with no `nodeSelector` matches
+every Node. When several ClusterCIDRs match a Node, the one whose matching term
+carries the most requirements is used first.
+
 More examples are available in the [`examples/`](./examples) directory.
 
 ## Configuration
