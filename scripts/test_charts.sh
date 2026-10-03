@@ -19,7 +19,7 @@ SCRIPT_PATH="$( cd "$(dirname "$0")" >/dev/null 2>&1 || exit ; pwd -P )"
 source "$SCRIPT_PATH"/common.sh
 
 function test_charts {
-  ct install --config "${SCRIPT_PATH}/.ct.yaml" \
+  ct lint-and-install --config "${SCRIPT_PATH}/.ct.yaml" \
     --helm-extra-set-args "\
       --set=image.tag=${IMG_TAG} \
       --set=imagePullSecrets[0].name=dev-image-pull \
