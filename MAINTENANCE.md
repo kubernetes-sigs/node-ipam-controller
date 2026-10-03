@@ -181,7 +181,7 @@ Open a pull request against
 [`kubernetes/k8s.io`](https://github.com/kubernetes/k8s.io) that adds both
 digests to
 [`registry.k8s.io/images/k8s-staging-networking/images.yaml`](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/images/k8s-staging-networking/images.yaml).
-Entries are sorted by name. The approvers are listed in the
+The approvers are listed in the
 [OWNERS](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/images/k8s-staging-networking/OWNERS)
 file next to it.
 
