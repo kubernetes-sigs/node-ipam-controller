@@ -134,8 +134,13 @@ image-build:
 		$(PUSH) \
 		$(IMAGE_BUILD_EXTRA_OPTS) ./
 
+# Platforms of the image pushed by image-push. image-build builds for the local
+# platform only, so that the image can be loaded with PUSH=--load.
+IMAGE_PLATFORMS ?= linux/amd64,linux/arm64
+
 .PHONY: image-push
 image-push: PUSH=--push
+image-push: IMAGE_BUILD_EXTRA_OPTS += --platform=$(IMAGE_PLATFORMS)
 image-push: image-build
 
 # PLATFORMS defines the target platforms for the manager image be built to provide support to multiple

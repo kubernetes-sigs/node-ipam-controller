@@ -46,7 +46,8 @@ process.
 Every release ships a container image and a Helm chart, promoted through the
 [Kubernetes Image Promotion Pipeline](https://github.com/kubernetes/k8s.io/blob/main/registry.k8s.io/README.md):
 
-- **Container image**: `registry.k8s.io/networking/node-ipam-controller:v0.x.y`
+- **Container image**: `registry.k8s.io/networking/node-ipam-controller:v0.x.y`,
+  for `linux/amd64` and `linux/arm64`
 - **Helm chart**: `oci://registry.k8s.io/networking/charts/node-ipam-controller`,
   version `0.x.y`
 
