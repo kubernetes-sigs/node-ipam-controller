@@ -52,9 +52,10 @@ allocation.
 Install via Helm:
 
 ```sh
-helm install node-ipam-controller ./charts/node-ipam-controller \
-  --create-namespace \
-  --namespace nodeipam
+helm install node-ipam-controller \
+  oci://registry.k8s.io/networking/charts/node-ipam-controller \
+  --version 0.3.0 \
+  --namespace nodeipam --create-namespace
 ```
 
 ### Create a ClusterCIDR
