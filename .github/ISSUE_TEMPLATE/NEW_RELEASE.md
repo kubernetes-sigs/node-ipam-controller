@@ -16,14 +16,14 @@ Replace `$MAJ`, `$MIN`, `$PATCH` in the commands. See
 [MAINTENANCE.md](https://github.com/kubernetes-sigs/node-ipam-controller/blob/main/MAINTENANCE.md#release--promotion-process)
 for details on each step.
 
-- [ ] Fill in the "Changelog" section in this issue
-  - Tip: use `https://github.com/kubernetes-sigs/node-ipam-controller/compare/<previous tag>...main`
+- [ ] Generate release notes for the commit to release and fill in the "Changelog" section in this issue
+  - `release-notes --org kubernetes-sigs --repo node-ipam-controller --branch main --start-rev <previous tag> --end-sha <commit to release> --skip-first-commit --dependencies=false --output release-notes.md`
 - [ ] Get `/lgtm` from at least one other approver in [OWNERS](https://github.com/kubernetes-sigs/node-ipam-controller/blob/main/OWNERS)
 - [ ] Check that `main` is green in GitHub Actions and on [TestGrid](https://testgrid.k8s.io/sig-network-node-ipam-controller)
 - [ ] Push the release tag
-  - [ ] `git tag -s v$MAJ.$MIN.$PATCH -m "Release v$MAJ.$MIN.$PATCH"`
+  - [ ] `git tag -s v$MAJ.$MIN.$PATCH <commit to release> -m "Release v$MAJ.$MIN.$PATCH"`
   - [ ] `git push upstream v$MAJ.$MIN.$PATCH`
-- [ ] Create a draft release with `gh release create v$MAJ.$MIN.$PATCH --draft --verify-tag --generate-notes --notes-start-tag <previous tag>` and edit the notes
+- [ ] Create a draft release with `gh release create v$MAJ.$MIN.$PATCH --draft --verify-tag --title v$MAJ.$MIN.$PATCH --notes-file release-notes.md` and edit the notes
 - [ ] Check the staging artifacts and paste the digests in a comment in this issue
   - [ ] `crane digest gcr.io/k8s-staging-networking/node-ipam-controller:v$MAJ.$MIN.$PATCH`
   - [ ] `crane digest gcr.io/k8s-staging-networking/charts/node-ipam-controller:$MAJ.$MIN.$PATCH`
