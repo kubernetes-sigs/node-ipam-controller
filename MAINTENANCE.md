@@ -95,13 +95,43 @@ branches too.
 
 ---
 
+### Generate Release Notes
+
+Before opening the release issue, use the
+[`release-notes` CLI tool](https://github.com/kubernetes/release/blob/master/cmd/release-notes/README.md)
+to collect the `release-note` blocks from the descriptions of PRs merged since
+the previous tag. The Prow `release-note` plugin requires every PR to have
+either a note or the `release-note-none` label, and notes are grouped by the
+PR's `kind/*` label.
+
+```bash
+go install k8s.io/release/cmd/release-notes@latest
+git fetch upstream  # upstream is kubernetes-sigs/node-ipam-controller
+git rev-parse upstream/main  # the commit to release; note it for tagging
+export GITHUB_TOKEN=$(gh auth token)
+release-notes \
+  --org kubernetes-sigs \
+  --repo node-ipam-controller \
+  --branch main \
+  --start-rev v0.2.0 \
+  --end-sha <commit to release> \
+  --skip-first-commit \
+  --dependencies=false \
+  --output release-notes.md
+```
+
+Review and edit `release-notes.md`, then paste it into the "Changelog" section
+of the release issue. Tag the same commit you passed as `--end-sha`.
+
+---
+
 ### Open a Release Issue
 
 Open an issue with the
 [New Release](https://github.com/kubernetes-sigs/node-ipam-controller/issues/new?template=NEW_RELEASE.md)
-template and fill in the changelog. At least one approver from [OWNERS](./OWNERS)
-other than the person cutting the release must `/lgtm` the issue before the tag
-is pushed.
+template and fill in the changelog from `release-notes.md`. At least one
+approver from [OWNERS](./OWNERS) other than the person cutting the release must
+`/lgtm` the issue before the tag is pushed.
 
 Before tagging, check that `main` is green in GitHub Actions and that the last
 `post-node-ipam-controller-push-images` run on
@@ -112,12 +142,12 @@ Before tagging, check that `main` is green in GitHub Actions and that the last
 ### Push a Release Tag
 
 Only members of `node-ipam-controller-maintainers` can push tags. Sign the tag
-with a GPG or SSH key registered on GitHub:
+with a GPG or SSH key registered on GitHub, and tag the commit the release notes
+were generated for:
 
 ```bash
-git checkout main
-git pull upstream main  # upstream is kubernetes-sigs/node-ipam-controller
-git tag -s v0.3.0 -m "Release v0.3.0"
+git fetch upstream
+git tag -s v0.3.0 <commit to release> -m "Release v0.3.0"
 git push upstream v0.3.0
 ```
 
@@ -133,9 +163,7 @@ which runs `make release` in Cloud Build and pushes:
 
 ### Draft the GitHub Release
 
-Create a draft release with notes generated from the merged PRs.
-[`.github/release.yml`](./.github/release.yml) groups Dependabot updates in a
-separate section.
+Create a draft release from the generated notes:
 
 ```bash
 gh release create v0.3.0 \
@@ -143,8 +171,7 @@ gh release create v0.3.0 \
   --draft \
   --verify-tag \
   --title v0.3.0 \
-  --generate-notes \
-  --notes-start-tag v0.2.0
+  --notes-file release-notes.md
 ```
 
 Edit the draft: call out breaking changes and add install instructions:
