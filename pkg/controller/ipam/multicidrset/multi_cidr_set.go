@@ -158,7 +158,7 @@ func (s *MultiCIDRSet) indexToCIDRBlock(index int) (*net.IPNet, error) {
 	switch /*v4 or v6*/ {
 	case netutils.IsIPv4(s.ClusterCIDR.IP):
 		j := uint32(index) << uint32(32-s.NodeMaskSize)
-		ipInt := (binary.BigEndian.Uint32(s.ClusterCIDR.IP)) | j
+		ipInt := binary.BigEndian.Uint32(s.ClusterCIDR.IP) | j
 		ip = make([]byte, net.IPv4len)
 		binary.BigEndian.PutUint32(ip, ipInt)
 	case netutils.IsIPv6(s.ClusterCIDR.IP):
