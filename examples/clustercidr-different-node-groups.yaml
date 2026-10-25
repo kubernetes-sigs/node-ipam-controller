@@ -23,7 +23,7 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/control-plane
+      - key: platform.node-group/control-plane
         operator: Exists
 ---
 apiVersion: networking.x-k8s.io/v1
@@ -36,7 +36,7 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/worker-xsmall
+      - key: platform.node-group/worker-xsmall
         operator: Exists
 ---
 apiVersion: networking.x-k8s.io/v1
@@ -49,7 +49,7 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/worker-small
+      - key: platform.node-group/worker-small
         operator: Exists
 ---
 apiVersion: networking.x-k8s.io/v1
@@ -62,7 +62,7 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/worker-medium
+      - key: platform.node-group/worker-medium
         operator: Exists
 ---
 apiVersion: networking.x-k8s.io/v1
@@ -75,7 +75,7 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/worker-large
+      - key: platform.node-group/worker-large
         operator: Exists
 ---
 apiVersion: networking.x-k8s.io/v1
@@ -88,5 +88,5 @@ spec:
   nodeSelector:
     nodeSelectorTerms:
     - matchExpressions:
-      - key: platform.node_group/worker-xlarge
+      - key: platform.node-group/worker-xlarge
         operator: Exists
