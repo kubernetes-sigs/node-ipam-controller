@@ -4,6 +4,12 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    allow:
+      - dependency-type: "direct"
+      # A tool dependency, marked indirect in go.mod. Matches the k8s-deps
+      # group, so it moves with the Kubernetes modules, which set the envtest
+      # version (ENVTEST_K8S_VERSION in the Makefile).
+      - dependency-name: "sigs.k8s.io/controller-runtime/tools/setup-envtest"
     groups:
       k8s-deps:
         patterns:
