@@ -38,11 +38,11 @@ func TestPriorityQueue(t *testing.T) {
 		want  *PriorityQueueItem
 	}{
 		{"Test queue with single item", []*PriorityQueueItem{pqi1}, pqi1},
-		{"Test queue with items having different labelMatchCount", []*PriorityQueueItem{pqi1, pqi2}, pqi2},
-		{"Test queue with items having same labelMatchCount, different max Allocatable Pod CIDRs", []*PriorityQueueItem{pqi1, pqi2, pqi3}, pqi2},
-		{"Test queue with items having same labelMatchCount, max Allocatable Pod CIDRs, different PerNodeMaskSize", []*PriorityQueueItem{pqi1, pqi2, pqi4}, pqi4},
-		{"Test queue with items having same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels", []*PriorityQueueItem{pqi1, pqi2, pqi4, pqi5}, pqi4},
-		{"Test queue with items having same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses", []*PriorityQueueItem{pqi1, pqi2, pqi4, pqi5, pqi6}, pqi4},
+		{"Test queue with items having different matchCount", []*PriorityQueueItem{pqi1, pqi2}, pqi2},
+		{"Test queue with items having same matchCount, different max Allocatable Pod CIDRs", []*PriorityQueueItem{pqi1, pqi2, pqi3}, pqi2},
+		{"Test queue with items having same matchCount, max Allocatable Pod CIDRs, different PerNodeMaskSize", []*PriorityQueueItem{pqi1, pqi2, pqi4}, pqi4},
+		{"Test queue with items having same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels", []*PriorityQueueItem{pqi1, pqi2, pqi4, pqi5}, pqi4},
+		{"Test queue with items having same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses", []*PriorityQueueItem{pqi1, pqi2, pqi4, pqi5, pqi6}, pqi4},
 	} {
 		pq := make(PriorityQueue, 0)
 		for _, pqi := range testQueue.items {
@@ -64,7 +64,7 @@ func TestLess(t *testing.T) {
 		want  bool
 	}{
 		{
-			name: "different labelMatchCount, i higher priority than j",
+			name: "different matchCount, i higher priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr1", "192.168.0.0/16", "foo=bar,name=test1", 2, 8),
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/24", "foo=bar,name=test2", 1, 8),
@@ -72,7 +72,7 @@ func TestLess(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "different labelMatchCount, i lower priority than j",
+			name: "different matchCount, i lower priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr1", "192.168.0.0/16", "foo=bar,name=test1", 1, 8),
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/24", "foo=bar,name=test2", 2, 8),
@@ -80,7 +80,7 @@ func TestLess(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "same labelMatchCount, different max allocatable cidrs, i higher priority than j",
+			name: "same matchCount, different max allocatable cidrs, i higher priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/24", "foo=bar,name=test2", 2, 8),
 				createTestPriorityQueueItem("cidr3", "172.16.0.0/16", "foo=bar,name=test3", 2, 8),
@@ -88,7 +88,7 @@ func TestLess(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "same labelMatchCount, different max allocatable cidrs, i lower priority than j",
+			name: "same matchCount, different max allocatable cidrs, i lower priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/16", "foo=bar,name=test2", 2, 8),
 				createTestPriorityQueueItem("cidr3", "172.16.0.0/24", "foo=bar,name=test3", 2, 8),
@@ -96,7 +96,7 @@ func TestLess(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "same labelMatchCount, max allocatable cidrs, different PerNodeMaskSize i higher priority than j",
+			name: "same matchCount, max allocatable cidrs, different PerNodeMaskSize i higher priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/26", "foo=bar,name=test2", 2, 6),
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/24", "abc=bar,name=test4", 2, 8),
@@ -104,7 +104,7 @@ func TestLess(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "same labelMatchCount, max allocatable cidrs, different PerNodeMaskSize i lower priority than j",
+			name: "same matchCount, max allocatable cidrs, different PerNodeMaskSize i lower priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr2", "10.1.0.0/24", "foo=bar,name=test2", 2, 8),
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/26", "abc=bar,name=test4", 2, 6),
@@ -112,7 +112,7 @@ func TestLess(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels i higher priority than j",
+			name: "same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels i higher priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/26", "abc=bar,name=test4", 2, 6),
 				createTestPriorityQueueItem("cidr5", "10.1.2.0/26", "foo=bar,name=test5", 2, 6),
@@ -120,7 +120,7 @@ func TestLess(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels i lower priority than j",
+			name: "same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, different labels i lower priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/26", "xyz=bar,name=test4", 2, 6),
 				createTestPriorityQueueItem("cidr5", "10.1.2.0/26", "foo=bar,name=test5", 2, 6),
@@ -128,7 +128,7 @@ func TestLess(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses i higher priority than j",
+			name: "same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses i higher priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/26", "abc=bar,name=test4", 2, 6),
 				createTestPriorityQueueItem("cidr6", "10.1.3.0/26", "abc=bar,name=test4", 2, 6),
@@ -136,7 +136,7 @@ func TestLess(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "same labelMatchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses i lower priority than j",
+			name: "same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, different IP addresses i lower priority than j",
 			items: []*PriorityQueueItem{
 				createTestPriorityQueueItem("cidr4", "10.1.1.0/26", "xyz=bar,name=test4", 2, 6),
 				createTestPriorityQueueItem("cidr6", "10.0.3.0/26", "abc=bar,name=test4", 2, 6),
@@ -152,7 +152,7 @@ func TestLess(t *testing.T) {
 	}
 }
 
-func createTestPriorityQueueItem(name, cidr, selectorString string, labelMatchCount, perNodeHostBits int) *PriorityQueueItem {
+func createTestPriorityQueueItem(name, cidr, selectorString string, matchCount, perNodeHostBits int) *PriorityQueueItem {
 	_, clusterCIDR, _ := utilnet.ParseCIDRSloppy(cidr)
 	cidrSet, _ := multicidrset.NewMultiCIDRSet(name, clusterCIDR, perNodeHostBits)
 
@@ -161,7 +161,7 @@ func createTestPriorityQueueItem(name, cidr, selectorString string, labelMatchCo
 			Name:        name,
 			IPv4CIDRSet: cidrSet,
 		},
-		labelMatchCount: labelMatchCount,
-		selectorString:  selectorString,
+		matchCount:     matchCount,
+		selectorString: selectorString,
 	}
 }

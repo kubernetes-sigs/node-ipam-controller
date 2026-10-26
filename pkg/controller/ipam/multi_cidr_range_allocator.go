@@ -991,9 +991,9 @@ func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node,
 
 		for _, clusterCIDR := range clusterCIDRList {
 			pqItem := &PriorityQueueItem{
-				clusterCIDR:     clusterCIDR,
-				labelMatchCount: matchCnt,
-				selectorString:  label,
+				clusterCIDR:    clusterCIDR,
+				matchCount:     matchCnt,
+				selectorString: label,
 			}
 
 			// Only push the CIDRsets which are not marked for termination.
