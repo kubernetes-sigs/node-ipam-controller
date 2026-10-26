@@ -27,8 +27,9 @@ import (
 // An PriorityQueueItem is something we manage in a priority queue.
 type PriorityQueueItem struct {
 	clusterCIDR *cidrset.ClusterCIDR
-	// labelMatchCount is the first determinant of priority.
-	labelMatchCount int
+	// matchCount is the number of node selector requirements, labels and fields,
+	// that the node matches. It is the first determinant of priority.
+	matchCount int
 	// selectorString is a string representation of the labelSelector associated with the cidrSet.
 	selectorString string
 	// index is needed by update and is maintained by the heap.Interface methods.
@@ -43,12 +44,12 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 // Less compares the priority queue items, to store in a min heap.
 // Less(i,j) == true denotes i has higher priority than j.
 func (pq PriorityQueue) Less(i, j int) bool {
-	if pq[i].labelMatchCount != pq[j].labelMatchCount {
-		// P0: CidrSet with higher number of matching labels has the highest priority.
-		return pq[i].labelMatchCount > pq[j].labelMatchCount
+	if pq[i].matchCount != pq[j].matchCount {
+		// P0: CidrSet with higher number of matching node selector requirements has the highest priority.
+		return pq[i].matchCount > pq[j].matchCount
 	}
 
-	// If the count of matching labels is equal, compare the max allocatable pod CIDRs.
+	// If the match counts are equal, compare the max allocatable pod CIDRs.
 	if pq[i].maxAllocatable() != pq[j].maxAllocatable() {
 		// P1: CidrSet with fewer allocatable pod CIDRs has higher priority.
 		return pq[i].maxAllocatable() < pq[j].maxAllocatable()
