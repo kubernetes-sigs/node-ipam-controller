@@ -1960,6 +1960,47 @@ func TestSyncClusterCIDRDeleteWithNodesAssociated(t *testing.T) {
 	assert.Error(t, err, fmt.Sprintf("ClusterCIDR %s marked as terminating, won't be deleted until all associated nodes are deleted", createdCCC.Name))
 }
 
+// Ensure releasing the last node of a terminating ClusterCIDR enqueues the
+// ClusterCIDR, so that its deletion does not wait for its next retry.
+func TestReleaseCIDREnqueuesTerminatingClusterCIDR(t *testing.T) {
+	logger, ctx := ktesting.NewTestContext(t)
+	client, cccController := newController(ctx)
+
+	testCCC := makeClusterCIDR("testing-1", "10.2.0.0/16", "", 8, makeNodeSelector("foo", corev1.NodeSelectorOpIn, []string{"bar"}))
+	cccController.clusterCIDRStore.Add(testCCC)
+	require.NoError(t, cccController.syncClusterCIDR(ctx, testCCC.Name))
+
+	nodes := []*corev1.Node{
+		makeNode("test-node-1", map[string]string{"foo": "bar"}),
+		makeNode("test-node-2", map[string]string{"foo": "bar"}),
+	}
+	nodes[0].Spec.PodCIDRs = []string{"10.2.0.0/24"}
+	nodes[1].Spec.PodCIDRs = []string{"10.2.1.0/24"}
+	cccController.lock.Lock()
+	for _, node := range nodes {
+		require.NoError(t, cccController.occupyCIDRs(logger, node, cccController.cidrMap))
+	}
+	cccController.lock.Unlock()
+
+	createdCCC, err := client.NetworkingV1().ClusterCIDRs().Get(context.TODO(), testCCC.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	deletionTimestamp := metav1.Now()
+	createdCCC.DeletionTimestamp = &deletionTimestamp
+	cccController.clusterCIDRStore.Update(createdCCC)
+	require.Error(t, cccController.syncClusterCIDR(ctx, createdCCC.Name))
+	require.Zero(t, cccController.cidrQueue.Len())
+
+	require.NoError(t, cccController.ReleaseCIDR(logger, nodes[0]))
+	assert.Zero(t, cccController.cidrQueue.Len(), "ClusterCIDR enqueued while a node is associated")
+
+	require.NoError(t, cccController.ReleaseCIDR(logger, nodes[1]))
+	require.Equal(t, 1, cccController.cidrQueue.Len(), "ClusterCIDR not enqueued after its last node was released")
+	key, _ := cccController.cidrQueue.Get()
+	defer cccController.cidrQueue.Done(key)
+	assert.Equal(t, testCCC.Name, key)
+	assert.NoError(t, cccController.syncClusterCIDR(ctx, key))
+}
+
 func TestMultiCIDRSetDataRace(t *testing.T) {
 	_, cidr, err := utilnet.ParseCIDRSloppy("10.0.0.0/16")
 	require.NoError(t, err)
