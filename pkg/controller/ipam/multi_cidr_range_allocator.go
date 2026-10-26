@@ -708,6 +708,12 @@ func (r *multiCIDRRangeAllocator) ReleaseCIDR(logger klog.Logger, node *corev1.N
 	// Remove the node from the ClusterCIDR AssociatedNodes.
 	delete(clusterCIDR.AssociatedNodes, node.Name)
 
+	// A terminating ClusterCIDR is deleted once its last node is released. Sync
+	// it now, rather than on its next retry, which backs off up to 1000s.
+	if clusterCIDR.Terminating && len(clusterCIDR.AssociatedNodes) == 0 {
+		r.cidrQueue.Add(clusterCIDR.Name)
+	}
+
 	return nil
 }
 
