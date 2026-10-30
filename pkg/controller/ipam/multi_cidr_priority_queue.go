@@ -18,6 +18,7 @@ package ipam
 
 import (
 	"math"
+	"net/netip"
 
 	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 )
@@ -68,8 +69,8 @@ func (pq PriorityQueue) Less(i, j int) bool {
 		return pq[i].selectorString < pq[j].selectorString
 	}
 
-	// P4: CidrSet having an alpha-numerically smaller IP address value has a higher priority.
-	return pq[i].cidrLabel() < pq[j].cidrLabel()
+	// P4: CidrSet having a smaller IP address has a higher priority.
+	return pq[i].cidrIP().Compare(pq[j].cidrIP()) < 0
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -131,11 +132,12 @@ func (pqi *PriorityQueueItem) nodeMaskSize() int {
 	return pqi.clusterCIDR.IPv6CIDRSet.NodeMaskSize
 }
 
-// cidrLabel returns IPv4 CIDR if present, else returns IPv6 CIDR.
-func (pqi *PriorityQueueItem) cidrLabel() string {
-	if pqi.clusterCIDR.IPv4CIDRSet != nil {
-		return pqi.clusterCIDR.IPv4CIDRSet.Label
+// cidrIP returns the IPv4 CIDR address if present, else returns the IPv6 CIDR address.
+func (pqi *PriorityQueueItem) cidrIP() netip.Addr {
+	cidrSet := pqi.clusterCIDR.IPv4CIDRSet
+	if cidrSet == nil {
+		cidrSet = pqi.clusterCIDR.IPv6CIDRSet
 	}
-
-	return pqi.clusterCIDR.IPv6CIDRSet.Label
+	ip, _ := netip.AddrFromSlice(cidrSet.ClusterCIDR.IP)
+	return ip.Unmap()
 }
