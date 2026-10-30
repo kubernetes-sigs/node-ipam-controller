@@ -2166,3 +2166,87 @@ func TestHandleNodeDeleteWithTombstone(t *testing.T) {
 		})
 	}
 }
+
+// newDeleteRaceAllocator returns an allocator with a ClusterCIDR selecting the
+// given nodes, and the store of its node informer.
+func newDeleteRaceAllocator(t *testing.T, ctx context.Context, nodes ...*corev1.Node) (*multiCIDRRangeAllocator, cache.Store) {
+	t.Helper()
+
+	fakeNodeHandler := &test.FakeNodeHandler{
+		Existing:  nodes,
+		Clientset: fake.NewClientset(),
+	}
+	fakeNodeInformer := test.FakeNodeInformer(fakeNodeHandler)
+	fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(&clustercidrfake.Clientset{}, NoResyncPeriodFunc())
+	testCIDRMap := getTestCidrMap(
+		map[string][]*testClusterCIDR{
+			getTestNodeSelector([]testNodeSelectorRequirement{
+				{
+					key:      "testLabel-0",
+					operator: corev1.NodeSelectorOpIn,
+					values:   []string{"node0"},
+				},
+			}): {
+				{
+					name:            "test-cidr",
+					perNodeHostBits: 8,
+					ipv4CIDR:        "10.10.0.0/16",
+				},
+			},
+		})
+
+	allocator, err := NewMultiCIDRRangeAllocator(
+		ctx, fakeNodeHandler, clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs(),
+		fakeNodeInformer, fakeInformerFactory.Networking().V1().ClusterCIDRs(), CIDRAllocatorParams{},
+		&corev1.NodeList{}, testCIDRMap,
+	)
+	require.NoError(t, err)
+	return allocator.(*multiCIDRRangeAllocator), fakeNodeInformer.Informer().GetStore()
+}
+
+// assertCIDRFree asserts that no ClusterCIDR has the node associated or the CIDR
+// allocated.
+func assertCIDRFree(t *testing.T, ra *multiCIDRRangeAllocator, nodeName, cidr string) {
+	t.Helper()
+
+	_, podCIDR, err := utilnet.ParseCIDRSloppy(cidr)
+	require.NoError(t, err)
+	for _, clusterCIDRList := range ra.cidrMap {
+		for _, clusterCIDR := range clusterCIDRList {
+			assert.False(t, clusterCIDR.AssociatedNodes[nodeName], "node is associated with ClusterCIDR %s", clusterCIDR.Name)
+			assert.False(t, clusterCIDR.IPv4CIDRSet.CIDRAllocated(podCIDR), "CIDR %s is allocated in ClusterCIDR %s", cidr, clusterCIDR.Name)
+		}
+	}
+}
+
+// TestAllocateOrOccupyCIDRForDeletedNode covers a node sync that read the node
+// from the lister before the node was deleted, and runs after handleNodeDelete
+// released it. The informer removes the node from its store before it calls the
+// delete handler.
+func TestAllocateOrOccupyCIDRForDeletedNode(t *testing.T) {
+	t.Run("node with Pod CIDRs", func(t *testing.T) {
+		logger, ctx := ktesting.NewTestContext(t)
+		node := makeNode("node-1", map[string]string{"testLabel-0": "node0"})
+		node.Spec.PodCIDRs = []string{"10.10.0.0/24"}
+		ra, nodeStore := newDeleteRaceAllocator(t, ctx, node)
+		require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+		require.NoError(t, nodeStore.Delete(node))
+		require.NoError(t, ra.ReleaseCIDR(logger, node))
+		require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+		assertCIDRFree(t, ra, node.Name, "10.10.0.0/24")
+	})
+
+	t.Run("node without Pod CIDRs", func(t *testing.T) {
+		logger, ctx := ktesting.NewTestContext(t)
+		node := makeNode("node-1", map[string]string{"testLabel-0": "node0"})
+		ra, nodeStore := newDeleteRaceAllocator(t, ctx, node)
+
+		require.NoError(t, nodeStore.Delete(node))
+		require.NoError(t, ra.ReleaseCIDR(logger, node))
+		require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+		assertCIDRFree(t, ra, node.Name, "10.10.0.0/24")
+	})
+}

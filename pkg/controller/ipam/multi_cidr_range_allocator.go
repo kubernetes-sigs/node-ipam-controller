@@ -652,6 +652,19 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 		return nil
 	}
 
+	// The node may have been deleted, and released by handleNodeDelete, since the
+	// caller read it. The informer removes a node from its store before it calls
+	// the delete handler, so reading the node again under the lock tells.
+	current, err := r.nodeLister.Get(node.Name)
+	if apierrors.IsNotFound(err) {
+		logger.V(3).Info("node has been deleted", "node", klog.KObj(node))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	node = current
+
 	if len(node.Spec.PodCIDRs) > 0 {
 		return r.occupyCIDRs(logger, node, r.cidrMap)
 	}
