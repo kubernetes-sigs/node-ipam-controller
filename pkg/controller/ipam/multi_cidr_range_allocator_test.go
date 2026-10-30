@@ -2265,3 +2265,75 @@ func TestHandleNodeDeleteWithTombstone(t *testing.T) {
 		})
 	}
 }
+
+func clusterCIDRNames(clusterCIDRs []*multicidrset.ClusterCIDR) []string {
+	names := make([]string, 0, len(clusterCIDRs))
+	for _, clusterCIDR := range clusterCIDRs {
+		names = append(names, clusterCIDR.Name)
+	}
+	return names
+}
+
+func TestOrderedMatchingClusterCIDRsCatchAll(t *testing.T) {
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+	catchAllSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
+	require.NoError(t, err)
+	zoneA := getTestNodeSelector([]testNodeSelectorRequirement{
+		{
+			key:      "zone",
+			operator: corev1.NodeSelectorOpIn,
+			values:   []string{"a"},
+		},
+	})
+
+	newCIDRMap := func() map[string][]*multicidrset.ClusterCIDR {
+		return getTestCidrMap(map[string][]*testClusterCIDR{
+			// The selecting ClusterCIDR has more allocatable CIDRs than the catch
+			// all ones, it must still come first.
+			zoneA: {{name: "zone-a-cc", perNodeHostBits: 8, ipv4CIDR: "10.0.0.0/16"}},
+			catchAllSelector.String(): {
+				// Catch all ClusterCIDRs of the same size are ordered by IP address.
+				{name: "catch-all-b", perNodeHostBits: 4, ipv4CIDR: "10.1.0.0/24"},
+				{name: "catch-all-a", perNodeHostBits: 4, ipv4CIDR: "10.2.0.0/24"},
+				// Fewer allocatable CIDRs, so it comes first among the catch all ones.
+				{name: "catch-all-small", perNodeHostBits: 4, ipv4CIDR: "10.3.0.0/26"},
+			},
+		})
+	}
+
+	t.Run("catch all ClusterCIDRs come last and in priority order", func(t *testing.T) {
+		ra := &multiCIDRRangeAllocator{}
+		matching, err := ra.orderedMatchingClusterCIDRs(node, true, newCIDRMap())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zone-a-cc", "catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
+	})
+
+	t.Run("catch all ClusterCIDRs apply to nodes no ClusterCIDR selects", func(t *testing.T) {
+		ra := &multiCIDRRangeAllocator{}
+		matching, err := ra.orderedMatchingClusterCIDRs(makeNode("node-2", nil), true, newCIDRMap())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
+	})
+
+	t.Run("a terminating catch all ClusterCIDR is skipped for new allocations only", func(t *testing.T) {
+		ra := &multiCIDRRangeAllocator{}
+		cidrMap := newCIDRMap()
+		cidrMap[catchAllSelector.String()][0].Terminating = true
+
+		matching, err := ra.orderedMatchingClusterCIDRs(node, true, cidrMap)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zone-a-cc", "catch-all-small", "catch-all-a"}, clusterCIDRNames(matching))
+
+		matching, err = ra.orderedMatchingClusterCIDRs(node, false, cidrMap)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"zone-a-cc", "catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
+	})
+
+	t.Run("a node carrying the internal default label lists every catch all ClusterCIDR once", func(t *testing.T) {
+		ra := &multiCIDRRangeAllocator{}
+		labeled := makeNode("node-3", map[string]string{defaultClusterCIDRKey: defaultClusterCIDRValue})
+		matching, err := ra.orderedMatchingClusterCIDRs(labeled, true, newCIDRMap())
+		require.NoError(t, err)
+		assert.Equal(t, []string{"catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
+	})
+}

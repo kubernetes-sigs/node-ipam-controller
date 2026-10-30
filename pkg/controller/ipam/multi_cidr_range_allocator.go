@@ -967,8 +967,11 @@ func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMa
 }
 
 // orderedMatchingClusterCIDRs requires the caller to hold r.lock.
-// orderedMatchingClusterCIDRs returns a list of all the ClusterCIDRs matching the node labels.
-// The list is ordered with the following priority, which act as tie-breakers.
+// orderedMatchingClusterCIDRs returns a list of all the ClusterCIDRs matching the
+// node labels, followed by the catch all ClusterCIDRs, the ones without a node
+// selector.
+// Both parts of the list are ordered with the following priority, which act as
+// tie-breakers.
 // P0: ClusterCIDR with higher number of matching labels has the highest priority.
 // P1: ClusterCIDR having cidrSet with fewer allocatable Pod CIDRs has higher priority.
 // P2: ClusterCIDR with a PerNodeMaskSize having fewer IPs has higher priority.
@@ -979,44 +982,45 @@ func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMa
 // CIDRs. Occupying CIDRs a node already has and releasing them include terminating
 // ClusterCIDRs.
 func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, forAllocation bool, cidrMap map[string][]*cidrset.ClusterCIDR) ([]*cidrset.ClusterCIDR, error) {
-	matchingCIDRs := make([]*cidrset.ClusterCIDR, 0)
-	pq := make(PriorityQueue, 0)
-
-	for label, clusterCIDRList := range cidrMap {
-		labelsMatch, matchCnt, err := r.matchCIDRLabels(node, label)
-		if err != nil {
-			return nil, err
-		}
-
-		if !labelsMatch {
-			continue
-		}
-
-		for _, clusterCIDR := range clusterCIDRList {
-			pqItem := &PriorityQueueItem{
-				clusterCIDR: clusterCIDR,
-				matchCount:  matchCnt,
-			}
-
-			if !forAllocation || !clusterCIDR.Terminating {
-				heap.Push(&pq, pqItem)
-			}
-		}
-	}
-
-	// Remove the ClusterCIDRs from the PriorityQueue, they arrive in priority order.
-	for pq.Len() > 0 {
-		pqItem := heap.Pop(&pq).(*PriorityQueueItem)
-		matchingCIDRs = append(matchingCIDRs, pqItem.clusterCIDR)
-	}
-
-	// Append the catch all CIDR config.
 	defaultSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
 	if err != nil {
 		return nil, err
 	}
-	if clusterCIDRList, ok := cidrMap[defaultSelector.String()]; ok {
-		matchingCIDRs = append(matchingCIDRs, clusterCIDRList...)
+	catchAllKey := defaultSelector.String()
+
+	selected := make(PriorityQueue, 0)
+	catchAll := make(PriorityQueue, 0)
+
+	for label, clusterCIDRList := range cidrMap {
+		// The catch all ClusterCIDRs are not matched against the node labels, so
+		// that a node carrying the internal default label does not list them twice.
+		pq, matchCnt := &catchAll, 0
+		if label != catchAllKey {
+			labelsMatch, cnt, err := r.matchCIDRLabels(node, label)
+			if err != nil {
+				return nil, err
+			}
+			if !labelsMatch {
+				continue
+			}
+			pq, matchCnt = &selected, cnt
+		}
+
+		for _, clusterCIDR := range clusterCIDRList {
+			if forAllocation && clusterCIDR.Terminating {
+				continue
+			}
+			heap.Push(pq, &PriorityQueueItem{clusterCIDR: clusterCIDR, matchCount: matchCnt})
+		}
+	}
+
+	// Remove the ClusterCIDRs from the PriorityQueues, they arrive in priority order.
+	matchingCIDRs := make([]*cidrset.ClusterCIDR, 0, selected.Len()+catchAll.Len())
+	for _, pq := range []*PriorityQueue{&selected, &catchAll} {
+		for pq.Len() > 0 {
+			pqItem := heap.Pop(pq).(*PriorityQueueItem)
+			matchingCIDRs = append(matchingCIDRs, pqItem.clusterCIDR)
+		}
 	}
 	return matchingCIDRs, nil
 }
