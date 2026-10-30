@@ -28,16 +28,15 @@ import (
 	"k8s.io/apimachinery/pkg/util/yaml"
 
 	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
-	"sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 )
 
 // loadExampleCIDRMap maps the ClusterCIDRs of the given files in the examples
 // directory, the way the controller does when it creates them.
-func loadExampleCIDRMap(t *testing.T, files ...string) map[string][]*multicidrset.ClusterCIDR {
+func loadExampleCIDRMap(t *testing.T, files ...string) map[string]*clusterCIDREntry {
 	t.Helper()
 
 	ra := &multiCIDRRangeAllocator{}
-	cidrMap := make(map[string][]*multicidrset.ClusterCIDR)
+	cidrMap := make(map[string]*clusterCIDREntry)
 	for _, file := range files {
 		f, err := os.Open(filepath.Join("..", "..", "..", "examples", file))
 		require.NoError(t, err)
@@ -52,11 +51,12 @@ func loadExampleCIDRMap(t *testing.T, files ...string) map[string][]*multicidrse
 			}
 			require.NoError(t, err, file)
 
-			key, err := ra.nodeSelectorKey(clusterCIDR)
+			selector, err := ra.clusterCIDRNodeSelector(clusterCIDR)
 			require.NoError(t, err, clusterCIDR.Name)
 			clusterCIDRSet, err := ra.createClusterCIDRSet(clusterCIDR, false)
 			require.NoError(t, err, clusterCIDR.Name)
-			require.NoError(t, ra.mapClusterCIDRSet(cidrMap, key, clusterCIDRSet))
+			require.NotContains(t, cidrMap, clusterCIDR.Name)
+			require.NoError(t, ra.mapClusterCIDRSet(cidrMap, selector, clusterCIDRSet))
 		}
 	}
 	return cidrMap
