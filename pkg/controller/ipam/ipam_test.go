@@ -348,17 +348,6 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true", "match": "single"}),
 			[]string{"172.31.0.0/25", "fd35:30:100::/121"},
 		),
-		ginkgo.Entry("ClusterCIDR with label having lower alphanumeric value",
-			[]*v1.ClusterCIDR{
-				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
-				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("few-alloc-cc", "172.16.0.0/23", "fd34:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("low-pernodehostbits-cc", "172.31.0.0/24", "fd35:30:100::/120", 7, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("low-alpha-cc", "192.169.0.0/24", "fd12:40:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
-			},
-			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
-			[]string{"192.169.0.0/25", "fd12:40:100::/121"},
-		),
 		ginkgo.Entry("ClusterCIDR with alphanumerically smaller IP address",
 			[]*v1.ClusterCIDR{
 				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
@@ -370,6 +359,17 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			},
 			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
 			[]string{"10.1.0.0/25", "fd00:10:100::/121"},
+		),
+		ginkgo.Entry("ClusterCIDR with alphanumerically lower name",
+			[]*v1.ClusterCIDR{
+				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
+				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
+				makeClusterCIDR("few-alloc-cc", "172.16.0.0/23", "fd34:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
+				makeClusterCIDR("low-pernodehostbits-cc", "172.31.0.0/24", "fd35:30:100::/120", 7, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
+				makeClusterCIDR("a-low-name-cc", "172.31.0.0/24", "fd36:30:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
+			},
+			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
+			[]string{"172.31.0.0/25", "fd36:30:100::/121"},
 		),
 	)
 })
