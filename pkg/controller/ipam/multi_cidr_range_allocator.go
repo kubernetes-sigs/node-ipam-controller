@@ -774,6 +774,13 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 	node, err := r.nodeLister.Get(data.nodeName)
 	if err != nil {
 		logger.Error(err, "Failed while getting node for updating Node.Spec.PodCIDRs", "node", klog.KRef("", data.nodeName))
+		// Release the reserved CIDRs on any error: nothing refers to them yet,
+		// and the next sync reserves new ones if the node still exists.
+		for _, cidr := range data.allocatedCIDRs {
+			if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
+				return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node: %q: %w", cidr, data.clusterCIDR.Name, data.nodeName, err)
+			}
+		}
 		return err
 	}
 

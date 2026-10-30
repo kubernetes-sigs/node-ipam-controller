@@ -2250,3 +2250,29 @@ func TestAllocateOrOccupyCIDRForDeletedNode(t *testing.T) {
 		assertCIDRFree(t, ra, node.Name, "10.10.0.0/24")
 	})
 }
+
+// TestUpdateCIDRsAllocationForDeletedNode asserts that the CIDRs reserved for a
+// node are released when the node is deleted before they are assigned to it.
+func TestUpdateCIDRsAllocationForDeletedNode(t *testing.T) {
+	logger, ctx := ktesting.NewTestContext(t)
+	node := makeNode("node-1", map[string]string{"testLabel-0": "node0"})
+	ra, nodeStore := newDeleteRaceAllocator(t, ctx, node)
+
+	ra.lock.Lock()
+	defer ra.lock.Unlock()
+	cidrs, clusterCIDR, err := ra.prioritizedCIDRs(logger, node, ra.cidrMap)
+	require.NoError(t, err)
+	require.Equal(t, []string{"10.10.0.0/24"}, ipnetToStringList(cidrs))
+
+	require.NoError(t, nodeStore.Delete(node))
+	err = ra.updateCIDRsAllocation(logger, multiCIDRNodeReservedCIDRs{
+		nodeReservedCIDRs: nodeReservedCIDRs{
+			nodeName:       node.Name,
+			allocatedCIDRs: cidrs,
+		},
+		clusterCIDR: clusterCIDR,
+	})
+	require.Error(t, err)
+
+	assertCIDRFree(t, ra, node.Name, "10.10.0.0/24")
+}
