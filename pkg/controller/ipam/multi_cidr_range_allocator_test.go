@@ -437,6 +437,105 @@ func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
 	}
 }
 
+// TestOccupyCIDRsInTerminatingClusterCIDR asserts that a node keeps its
+// association with the terminating ClusterCIDR holding its Pod CIDRs, at
+// startup and on node sync, so that the ClusterCIDR is not deleted while the
+// node uses it.
+func TestOccupyCIDRsInTerminatingClusterCIDR(t *testing.T) {
+	catchAllSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
+	require.NoError(t, err)
+	groupA := getTestNodeSelector([]testNodeSelectorRequirement{
+		{
+			key:      "group",
+			operator: corev1.NodeSelectorOpIn,
+			values:   []string{"a"},
+		},
+	})
+
+	testCases := []struct {
+		description string
+		selector    string
+		overlapping bool
+	}{
+		{
+			description: "catch all ClusterCIDR",
+			selector:    catchAllSelector.String(),
+		},
+		{
+			description: "ClusterCIDR selecting the node",
+			selector:    groupA,
+		},
+		{
+			description: "ClusterCIDR selecting the node, with an overlapping catch all ClusterCIDR",
+			selector:    groupA,
+			overlapping: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		node := makeNode("node-1", map[string]string{"group": "a"})
+		node.Spec.PodCIDRs = []string{"10.10.0.0/24"}
+
+		newCIDRMap := func() map[string][]*multicidrset.ClusterCIDR {
+			testCIDRMap := map[string][]*testClusterCIDR{
+				tc.selector: {{name: "terminating", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16"}},
+			}
+			if tc.overlapping {
+				testCIDRMap[catchAllSelector.String()] = []*testClusterCIDR{
+					{name: "overlapping", perNodeHostBits: 8, ipv4CIDR: "10.0.0.0/8"},
+				}
+			}
+			cidrMap := getTestCidrMap(testCIDRMap)
+			cidrMap[tc.selector][0].Terminating = true
+			return cidrMap
+		}
+		newAllocator := func(
+			ctx context.Context, nodeList *corev1.NodeList, cidrMap map[string][]*multicidrset.ClusterCIDR,
+		) (CIDRAllocator, error) {
+			fakeNodeHandler := &test.FakeNodeHandler{
+				Existing:  []*corev1.Node{node},
+				Clientset: fake.NewClientset(),
+			}
+			fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(
+				&clustercidrfake.Clientset{}, NoResyncPeriodFunc(),
+			)
+			return NewMultiCIDRRangeAllocator(
+				ctx, fakeNodeHandler, clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs(),
+				test.FakeNodeInformer(fakeNodeHandler), fakeInformerFactory.Networking().V1().ClusterCIDRs(),
+				CIDRAllocatorParams{}, nodeList, cidrMap,
+			)
+		}
+		assertAssociated := func(t *testing.T, cidrMap map[string][]*multicidrset.ClusterCIDR) {
+			t.Helper()
+			assert.True(t, cidrMap[tc.selector][0].AssociatedNodes[node.Name],
+				"node is not associated with the terminating ClusterCIDR")
+			if tc.overlapping {
+				assert.False(t, cidrMap[catchAllSelector.String()][0].AssociatedNodes[node.Name],
+					"node is associated with the overlapping ClusterCIDR")
+			}
+		}
+
+		t.Run(tc.description+", at startup", func(t *testing.T) {
+			_, ctx := ktesting.NewTestContext(t)
+			cidrMap := newCIDRMap()
+
+			_, err := newAllocator(ctx, &corev1.NodeList{Items: []corev1.Node{*node}}, cidrMap)
+			require.NoError(t, err)
+			assertAssociated(t, cidrMap)
+		})
+
+		t.Run(tc.description+", on node sync", func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			cidrMap := newCIDRMap()
+			allocator, err := newAllocator(ctx, &corev1.NodeList{}, cidrMap)
+			require.NoError(t, err)
+
+			require.NoError(t, allocator.AllocateOrOccupyCIDR(logger, node))
+			assertAssociated(t, cidrMap)
+		})
+	}
+}
+
 // todo(mneverov): copied from cidr_allocator
 
 // nodePollInterval is used in listing node

@@ -521,7 +521,10 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	if len(node.Spec.PodCIDRs) == 0 {
 		return nil
 	}
-	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true, cidrMap)
+	// Include terminating ClusterCIDRs: the node already uses these CIDRs, and
+	// the ClusterCIDR holding them must keep the node associated, so that it is
+	// not deleted while the node exists.
+	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
 	if err != nil {
 		return err
 	}
@@ -972,10 +975,10 @@ func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMa
 // P3: ClusterCIDR with a cidrSet having a smaller IP address value has a higher priority.
 // P4: ClusterCIDR with the lower alphanumeric name has a higher priority.
 //
-// orderedMatchingClusterCIDRs takes `occupy` as an argument, it determines whether the function
-// is called during an occupy or a release operation. For a release operation, a ClusterCIDR must
-// be added to the matching ClusterCIDRs list, irrespective of whether the ClusterCIDR is terminating.
-func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, occupy bool, cidrMap map[string][]*cidrset.ClusterCIDR) ([]*cidrset.ClusterCIDR, error) {
+// forAllocation leaves out terminating ClusterCIDRs, so that they hand out no new
+// CIDRs. Occupying CIDRs a node already has and releasing them include terminating
+// ClusterCIDRs.
+func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, forAllocation bool, cidrMap map[string][]*cidrset.ClusterCIDR) ([]*cidrset.ClusterCIDR, error) {
 	matchingCIDRs := make([]*cidrset.ClusterCIDR, 0)
 	pq := make(PriorityQueue, 0)
 
@@ -995,9 +998,7 @@ func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node,
 				matchCount:  matchCnt,
 			}
 
-			// Only push the CIDRsets which are not marked for termination.
-			// Always push the CIDRsets when marked for release.
-			if !occupy || !clusterCIDR.Terminating {
+			if !forAllocation || !clusterCIDR.Terminating {
 				heap.Push(&pq, pqItem)
 			}
 		}
