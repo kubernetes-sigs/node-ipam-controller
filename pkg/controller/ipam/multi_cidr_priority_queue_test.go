@@ -143,6 +143,14 @@ func TestLess(t *testing.T) {
 			},
 			want: false,
 		},
+		{
+			name: "same matchCount, max Allocatable Pod CIDRs, PerNodeMaskSize, labels, IP addresses with fewer digits i higher priority than j",
+			items: []*PriorityQueueItem{
+				createTestPriorityQueueItem("cidr4", "9.1.1.0/26", "abc=bar,name=test4", 2, 6),
+				createTestPriorityQueueItem("cidr6", "10.1.1.0/26", "abc=bar,name=test4", 2, 6),
+			},
+			want: true,
+		},
 	} {
 		var pq PriorityQueue = testQueue.items
 		got := pq.Less(0, 1)
