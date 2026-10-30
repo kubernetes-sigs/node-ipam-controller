@@ -969,8 +969,8 @@ func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMa
 // P0: ClusterCIDR with higher number of matching labels has the highest priority.
 // P1: ClusterCIDR having cidrSet with fewer allocatable Pod CIDRs has higher priority.
 // P2: ClusterCIDR with a PerNodeMaskSize having fewer IPs has higher priority.
-// P3: ClusterCIDR having label with lower alphanumeric value has higher priority.
-// P4: ClusterCIDR with a cidrSet having a smaller IP address value has a higher priority.
+// P3: ClusterCIDR with a cidrSet having a smaller IP address value has a higher priority.
+// P4: ClusterCIDR with the lower alphanumeric name has a higher priority.
 //
 // orderedMatchingClusterCIDRs takes `occupy` as an argument, it determines whether the function
 // is called during an occupy or a release operation. For a release operation, a ClusterCIDR must
@@ -991,9 +991,8 @@ func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node,
 
 		for _, clusterCIDR := range clusterCIDRList {
 			pqItem := &PriorityQueueItem{
-				clusterCIDR:    clusterCIDR,
-				matchCount:     matchCnt,
-				selectorString: label,
+				clusterCIDR: clusterCIDR,
+				matchCount:  matchCnt,
 			}
 
 			// Only push the CIDRsets which are not marked for termination.
@@ -1004,9 +1003,7 @@ func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node,
 		}
 	}
 
-	// Remove the ClusterCIDRs from the PriorityQueue.
-	// They arrive in descending order of matchCnt,
-	// if matchCnt is equal it is ordered in ascending order of labels.
+	// Remove the ClusterCIDRs from the PriorityQueue, they arrive in priority order.
 	for pq.Len() > 0 {
 		pqItem := heap.Pop(&pq).(*PriorityQueueItem)
 		matchingCIDRs = append(matchingCIDRs, pqItem.clusterCIDR)

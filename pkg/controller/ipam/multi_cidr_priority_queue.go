@@ -31,8 +31,6 @@ type PriorityQueueItem struct {
 	// matchCount is the number of node selector requirements, labels and fields,
 	// that the node matches. It is the first determinant of priority.
 	matchCount int
-	// selectorString is a string representation of the labelSelector associated with the cidrSet.
-	selectorString string
 	// index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.
 }
@@ -63,14 +61,15 @@ func (pq PriorityQueue) Less(i, j int) bool {
 		return pq[i].nodeMaskSize() > pq[j].nodeMaskSize()
 	}
 
-	// If the per node mask size are equal compare the CIDR labels.
-	if pq[i].selectorString != pq[j].selectorString {
-		// P3: CidrSet having label with lower alphanumeric value has higher priority.
-		return pq[i].selectorString < pq[j].selectorString
+	// If the per node mask size are equal compare the IP addresses.
+	if c := pq[i].cidrIP().Compare(pq[j].cidrIP()); c != 0 {
+		// P3: CidrSet having a smaller IP address has a higher priority.
+		return c < 0
 	}
 
-	// P4: CidrSet having a smaller IP address has a higher priority.
-	return pq[i].cidrIP().Compare(pq[j].cidrIP()) < 0
+	// P4: CidrSet having a lower alphanumeric name has a higher priority. Names
+	// are unique, so this makes the order total.
+	return pq[i].clusterCIDR.Name < pq[j].clusterCIDR.Name
 }
 
 func (pq PriorityQueue) Swap(i, j int) {

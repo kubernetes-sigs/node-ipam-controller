@@ -925,7 +925,7 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 			},
 		},
 		{
-			description: "Dualstack CIDRs, clusterCIDR with equal label count, allocatable pod CIDRs and allocatable IPs, prioritize clusterCIDR with lower alphanumeric label",
+			description: "Dualstack CIDRs, clusterCIDR with equal label count, allocatable pod CIDRs and allocatable IPs, IPv4 CIDRs, prioritize clusterCIDR with lower alphanumeric name",
 			fakeNodeHandler: &test.FakeNodeHandler{
 				Existing: []*corev1.Node{
 					{
@@ -965,8 +965,8 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 						{
 							name:            "dual-stack-cidr-1",
 							perNodeHostBits: 8,
-							ipv4CIDR:        "127.123.234.0/16",
-							ipv6CIDR:        "abc:def:deca::/112",
+							ipv4CIDR:        "10.0.0.0/16",
+							ipv6CIDR:        "ace:cab:deca::/112",
 						},
 					},
 					getTestNodeSelector([]testNodeSelectorRequirement{
@@ -985,17 +985,17 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 							name:            "dual-stack-cidr-2",
 							perNodeHostBits: 8,
 							ipv4CIDR:        "10.0.0.0/16",
-							ipv6CIDR:        "ace:cab:deca::/112",
+							ipv6CIDR:        "abc:def:deca::/112",
 						},
 					},
 				}),
 			expectedAllocatedCIDR: map[int]string{
-				0: "127.123.0.0/24",
-				1: "abc:def:deca::/120",
+				0: "10.0.0.0/24",
+				1: "ace:cab:deca::/120",
 			},
 		},
 		{
-			description: "Dualstack CIDRs, clusterCIDR with equal label count, allocatable pod CIDRs, allocatable IPs and labels, prioritize clusterCIDR with smaller IP",
+			description: "Dualstack CIDRs, clusterCIDR with equal label count, allocatable pod CIDRs and allocatable IPs, prioritize clusterCIDR with smaller IP",
 			fakeNodeHandler: &test.FakeNodeHandler{
 				Existing: []*corev1.Node{
 					{
