@@ -357,7 +357,10 @@ func TestMultiCIDROccupyPreExistingCIDR(t *testing.T) {
 	}
 }
 
-func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
+// TestMultiCIDROccupyWithClusterCIDRNotHoldingAllPodCIDRs asserts that a node
+// whose Pod CIDRs a higher ranked ClusterCIDR can't all hold is associated with
+// the ClusterCIDR holding them, and nothing is left allocated in the other one.
+func TestMultiCIDROccupyWithClusterCIDRNotHoldingAllPodCIDRs(t *testing.T) {
 	nodeName := "testNode"
 	labelKey := "testLabel"
 	testNodeSelector := getTestNodeSelector([]testNodeSelectorRequirement{
@@ -404,6 +407,16 @@ func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
 			},
 			selecting: &testClusterCIDR{name: "ipv4-only", perNodeHostBits: 8, ipv4CIDR: "10.20.0.0/16"},
 		},
+		{
+			description: "original dual stack node, new dual stack ClusterCIDR containing only the IPv4 Pod CIDR",
+			podCIDRs:    []string{"10.10.0.0/24", "ace:cab:deca::/120"},
+			catchAll: &testClusterCIDR{
+				name: "catch-all", perNodeHostBits: 8, ipv4CIDR: "10.10.0.0/16", ipv6CIDR: "ace:cab:deca::/112",
+			},
+			selecting: &testClusterCIDR{
+				name: "dual-stack", perNodeHostBits: 8, ipv4CIDR: "10.0.0.0/8", ipv6CIDR: "fd00:10::/112",
+			},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -443,6 +456,23 @@ func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
 			)
 		}
 
+		assertOccupiedInCatchAll := func(t *testing.T, cidrMap map[string]*clusterCIDREntry) {
+			t.Helper()
+			assert.True(t, cidrMap[tc.catchAll.name].clusterCIDR.AssociatedNodes[node.Name],
+				"node is not associated with the catch all ClusterCIDR")
+			selecting := cidrMap[tc.selecting.name].clusterCIDR
+			for _, cidrSet := range []*multicidrset.MultiCIDRSet{selecting.IPv4CIDRSet, selecting.IPv6CIDRSet} {
+				if cidrSet == nil {
+					continue
+				}
+				for _, podCIDR := range tc.podCIDRs {
+					_, cidr, err := utilnet.ParseCIDRSloppy(podCIDR)
+					require.NoError(t, err)
+					assert.False(t, cidrSet.CIDRAllocated(cidr), "%s is allocated in %s", podCIDR, selecting.Name)
+				}
+			}
+		}
+
 		t.Run(tc.description+", at startup", func(t *testing.T) {
 			_, ctx := ktesting.NewTestContext(t)
 			cidrMap := newCIDRMap()
@@ -451,8 +481,7 @@ func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
 				_, err := newAllocator(ctx, &corev1.NodeList{Items: []corev1.Node{*node}}, cidrMap)
 				assert.NoError(t, err)
 			})
-			assert.True(t, cidrMap[tc.catchAll.name].clusterCIDR.AssociatedNodes[node.Name],
-				"node is not associated with the catch all ClusterCIDR")
+			assertOccupiedInCatchAll(t, cidrMap)
 		})
 
 		t.Run(tc.description+", on node sync", func(t *testing.T) {
@@ -464,8 +493,7 @@ func TestMultiCIDROccupyWithClusterCIDRMissingAnIPFamily(t *testing.T) {
 			assert.NotPanics(t, func() {
 				assert.NoError(t, allocator.AllocateOrOccupyCIDR(logger, node))
 			})
-			assert.True(t, cidrMap[tc.catchAll.name].clusterCIDR.AssociatedNodes[node.Name],
-				"node is not associated with the catch all ClusterCIDR")
+			assertOccupiedInCatchAll(t, cidrMap)
 		})
 	}
 }
