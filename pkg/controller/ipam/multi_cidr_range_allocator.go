@@ -555,8 +555,11 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		occupiedCount := 0
 		attempts++
 
-		if !hasCIDRSetsFor(clusterCIDR, podCIDRs) {
-			logger.V(3).Info("ClusterCIDR lacks the IP family of a node CIDR, trying next range",
+		// Check every Pod CIDR before occupying any: a CIDR occupied before a
+		// later one fails would stay allocated in a ClusterCIDR that doesn't have
+		// the node associated, and nothing would release it.
+		if !canOccupy(clusterCIDR, podCIDRs) {
+			logger.V(3).Info("ClusterCIDR can't hold every node CIDR, trying next range",
 				"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
 			continue
 		}
@@ -582,13 +585,24 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
 }
 
-// hasCIDRSetsFor returns whether the ClusterCIDR has a CIDRSet for the IP family of every CIDR.
-func hasCIDRSetsFor(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
+// canOccupy returns whether the ClusterCIDR has a CIDRSet for the IP family of
+// every CIDR, and every CIDR overlaps the range of that CIDRSet, the condition
+// under which MultiCIDRSet.Occupy accepts it.
+func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 	for _, cidr := range cidrs {
-		if netutil.IsIPv4CIDR(cidr) && clusterCIDR.IPv4CIDRSet == nil {
+		var cidrSet *cidrset.MultiCIDRSet
+		switch {
+		case netutil.IsIPv4CIDR(cidr):
+			cidrSet = clusterCIDR.IPv4CIDRSet
+		case netutil.IsIPv6CIDR(cidr):
+			cidrSet = clusterCIDR.IPv6CIDRSet
+		}
+		if cidrSet == nil {
 			return false
 		}
-		if netutil.IsIPv6CIDR(cidr) && clusterCIDR.IPv6CIDRSet == nil {
+		// CIDRs either nest or are disjoint, so they overlap if one contains the
+		// other's first address.
+		if !cidrSet.ClusterCIDR.Contains(cidr.IP) && !cidr.Contains(cidrSet.ClusterCIDR.IP) {
 			return false
 		}
 	}
