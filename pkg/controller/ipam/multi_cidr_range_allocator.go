@@ -652,6 +652,19 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 		return nil
 	}
 
+	// The node may have been deleted, and released by handleNodeDelete, since the
+	// caller read it. The informer removes a node from its store before it calls
+	// the delete handler, so reading the node again under the lock tells.
+	current, err := r.nodeLister.Get(node.Name)
+	if apierrors.IsNotFound(err) {
+		logger.V(3).Info("node has been deleted", "node", klog.KObj(node))
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	node = current
+
 	if len(node.Spec.PodCIDRs) > 0 {
 		return r.occupyCIDRs(logger, node, r.cidrMap)
 	}
@@ -761,6 +774,13 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 	node, err := r.nodeLister.Get(data.nodeName)
 	if err != nil {
 		logger.Error(err, "Failed while getting node for updating Node.Spec.PodCIDRs", "node", klog.KRef("", data.nodeName))
+		// Release the reserved CIDRs on any error: nothing refers to them yet,
+		// and the next sync reserves new ones if the node still exists.
+		for _, cidr := range data.allocatedCIDRs {
+			if err := r.Release(logger, data.clusterCIDR, cidr); err != nil {
+				return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node: %q: %w", cidr, data.clusterCIDR.Name, data.nodeName, err)
+			}
+		}
 		return err
 	}
 
