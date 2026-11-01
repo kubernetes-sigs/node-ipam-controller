@@ -711,7 +711,8 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 	return r.updateCIDRsAllocation(logger, allocated)
 }
 
-// ReleaseCIDR marks node.podCIDRs[...] as unused in our tracked cidrSets.
+// ReleaseCIDR marks node.podCIDRs[...] as unused in every ClusterCIDR the node
+// is associated with.
 func (r *multiCIDRRangeAllocator) ReleaseCIDR(logger klog.Logger, node *corev1.Node) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -720,33 +721,50 @@ func (r *multiCIDRRangeAllocator) ReleaseCIDR(logger klog.Logger, node *corev1.N
 		return nil
 	}
 
-	clusterCIDR, err := r.allocatedClusterCIDR(node, r.cidrMap)
-	if err != nil {
-		return err
-	}
-
+	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
 	for _, cidr := range node.Spec.PodCIDRs {
 		_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
 		if err != nil {
 			return fmt.Errorf("failed to parse CIDR %q on Node %q: %w", cidr, node.Name, err)
 		}
+		podCIDRs = append(podCIDRs, podCIDR)
+	}
 
-		logger.Info("release CIDR for node", "CIDR", cidr, "node", klog.KObj(node))
-		if err := r.Release(logger, clusterCIDR, podCIDR); err != nil {
-			return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node %q: %w", cidr, clusterCIDR.Name, node.Name, err)
+	// Look the ClusterCIDRs up by association, not by node selector and rank:
+	// the node labels, the ClusterCIDRs and their ranking may have changed
+	// since the node CIDRs were occupied, and a node synced after such a change
+	// may be associated with more than one ClusterCIDR.
+	var errs []error
+	associated := false
+	for _, entry := range r.cidrMap {
+		clusterCIDR := entry.clusterCIDR
+		if !clusterCIDR.AssociatedNodes[node.Name] {
+			continue
+		}
+		associated = true
+
+		for _, podCIDR := range podCIDRs {
+			logger.Info("release CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node), "clusterCIDR", clusterCIDR.Name)
+			if err := r.Release(logger, clusterCIDR, podCIDR); err != nil {
+				errs = append(errs, fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node %q: %w", podCIDR, clusterCIDR.Name, node.Name, err))
+			}
+		}
+
+		// Remove the association even if a release failed, so that the
+		// ClusterCIDR can be deleted.
+		delete(clusterCIDR.AssociatedNodes, node.Name)
+
+		// A terminating ClusterCIDR is deleted once its last node is released. Sync
+		// it now, rather than on its next retry, which backs off up to 1000s.
+		if clusterCIDR.Terminating && len(clusterCIDR.AssociatedNodes) == 0 {
+			r.cidrQueue.Add(clusterCIDR.Name)
 		}
 	}
 
-	// Remove the node from the ClusterCIDR AssociatedNodes.
-	delete(clusterCIDR.AssociatedNodes, node.Name)
-
-	// A terminating ClusterCIDR is deleted once its last node is released. Sync
-	// it now, rather than on its next retry, which backs off up to 1000s.
-	if clusterCIDR.Terminating && len(clusterCIDR.AssociatedNodes) == 0 {
-		r.cidrQueue.Add(clusterCIDR.Name)
+	if !associated {
+		return fmt.Errorf("no clusterCIDR found associated with node: %s", node.Name)
 	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // Marks all CIDRs with subNetMaskSize that belongs to serviceCIDR as used across all cidrs
@@ -956,19 +974,6 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 	}
 
 	return false
-}
-
-// allocatedClusterCIDR requires the caller to hold r.lock.
-// allocatedClusterCIDR returns the ClusterCIDR from which the node CIDRs were allocated.
-func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMap map[string]*clusterCIDREntry) (*cidrset.ClusterCIDR, error) {
-	clusterCIDRList := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
-
-	for _, clusterCIDR := range clusterCIDRList {
-		if ok := clusterCIDR.AssociatedNodes[node.Name]; ok {
-			return clusterCIDR, nil
-		}
-	}
-	return nil, fmt.Errorf("no clusterCIDR found associated with node: %s", node.Name)
 }
 
 // orderedMatchingClusterCIDRs requires the caller to hold r.lock.
