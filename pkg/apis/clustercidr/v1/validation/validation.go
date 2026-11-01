@@ -176,6 +176,20 @@ func ValidateNodeSelectorRequirement(rq corev1.NodeSelectorRequirement, fldPath 
 	return allErrs
 }
 
+// ValidateNodeSelectorMatchFields tests that the matchFields requirements of
+// every term of the nodeSelector have valid data.
+func ValidateNodeSelectorMatchFields(nodeSelector *corev1.NodeSelector, fldPath *field.Path) field.ErrorList {
+	allErrs := field.ErrorList{}
+
+	for i, term := range nodeSelector.NodeSelectorTerms {
+		for j, req := range term.MatchFields {
+			allErrs = append(allErrs, validateNodeFieldSelectorRequirement(req, fldPath.Child("nodeSelectorTerms").Index(i).Child("matchFields").Index(j))...)
+		}
+	}
+
+	return allErrs
+}
+
 // validateNodeFieldSelectorRequirement tests that the specified NodeSelectorRequirement fields has valid data.
 func validateNodeFieldSelectorRequirement(req corev1.NodeSelectorRequirement, fldPath *field.Path) field.ErrorList {
 	allErrs := field.ErrorList{}
