@@ -140,6 +140,21 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			makeNode("dualstack-allocate-node", map[string]string{"ipv4": "true", "ipv6": "true"}),
 			[]string{"192.168.0.0/24", "fd00:30:100::/120"},
 		),
+		ginkgo.Entry("Pod CIDR assigned to a node matching one of several ORed terms",
+			makeClusterCIDR("ored-terms-cc", "10.20.0.0/16", "", 8, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"b"}}}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "rack", Operator: corev1.NodeSelectorOpIn, Values: []string{"r1"}}}},
+			}}),
+			makeNode("ored-terms-node", map[string]string{"zone": "a", "rack": "r1"}),
+			[]string{"10.20.0.0/24"},
+		),
+		ginkgo.Entry("Pod CIDR assigned to a node selected by name with matchFields",
+			makeClusterCIDR("by-name-cc", "10.30.0.0/16", "", 8, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{{Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{"by-name-node"}}}},
+			}}),
+			makeNode("by-name-node", nil),
+			[]string{"10.30.0.0/24"},
+		),
 	)
 
 	ginkgo.It("should release Pod CIDR after node is deleted", func() {
@@ -224,6 +239,24 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		_, err = cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, originalClusterCIDR, metav1.CreateOptions{})
 		gomega.Expect(err).Should(gomega.MatchError(gomega.ContainSubstring("IPv6 must be a valid IPv6 CIDR.")))
 	})
+
+	ginkgo.DescribeTable("should ignore a ClusterCIDR with unsupported matchFields",
+		func(requirement corev1.NodeSelectorRequirement) {
+			clusterCIDR := makeClusterCIDR("invalid-match-fields", "10.0.0.0/16", "", 8, &corev1.NodeSelector{NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{requirement}},
+			}})
+			clusterCIDR, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
+			gomega.Expect(err).NotTo(gomega.HaveOccurred())
+
+			// The controller adds its finalizer only to the ClusterCIDRs it loads.
+			gomega.Consistently(komega.Object(clusterCIDR)).Should(gomega.WithTransform(func(c *v1.ClusterCIDR) []string {
+				return c.GetFinalizers()
+			}, gomega.BeEmpty()))
+		},
+		ginkgo.Entry("unknown key", corev1.NodeSelectorRequirement{Key: "spec.unschedulable", Operator: corev1.NodeSelectorOpNotIn, Values: []string{"true"}}),
+		ginkgo.Entry("Exists operator", corev1.NodeSelectorRequirement{Key: "metadata.name", Operator: corev1.NodeSelectorOpExists}),
+		ginkgo.Entry("several values", corev1.NodeSelectorRequirement{Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{"node-a", "node-b"}}),
+	)
 
 	ginkgo.It("should delete ClusterCIDR only after associated node is deleted", func() {
 		// Create a ClusterCIDR.
@@ -350,28 +383,28 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 			makeNode("dualstack-node", map[string]string{"ipv4": "true", "ipv6": "true", "match": "single"}),
 			[]string{"172.31.0.0/25", "fd35:30:100::/121"},
 		),
-		ginkgo.Entry("ClusterCIDR with label having lower alphanumeric value",
-			[]*v1.ClusterCIDR{
-				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
-				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("few-alloc-cc", "172.16.0.0/23", "fd34:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("low-pernodehostbits-cc", "172.31.0.0/24", "fd35:30:100::/120", 7, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("low-alpha-cc", "192.169.0.0/24", "fd12:40:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
-			},
-			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
-			[]string{"192.169.0.0/25", "fd12:40:100::/121"},
-		),
 		ginkgo.Entry("ClusterCIDR with alphanumerically smaller IP address",
 			[]*v1.ClusterCIDR{
 				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
 				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
 				makeClusterCIDR("few-alloc-cc", "172.16.0.0/23", "fd34:30:100::/119", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
 				makeClusterCIDR("low-pernodehostbits-cc", "172.31.0.0/24", "fd35:30:100::/120", 7, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
-				makeClusterCIDR("low-alpha-cc", "192.169.0.0/24", "fd12:40:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
 				makeClusterCIDR("low-ip-cc", "10.1.0.0/24", "fd00:10:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
 			},
 			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
 			[]string{"10.1.0.0/25", "fd00:10:100::/121"},
+		),
+		// The IPv4 CIDR is the IP address tie-break, so the IPv6 CIDR tells
+		// which ClusterCIDR was used.
+		ginkgo.Entry("ClusterCIDR with alphanumerically smaller name",
+			[]*v1.ClusterCIDR{
+				makeClusterCIDR("single-label-match-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, nodeSelector(map[string][]string{"match": {"single"}})),
+				makeClusterCIDR("double-label-match-cc", "10.0.0.0/20", "fd12:30:200::/116", 8, nodeSelector(map[string][]string{"ipv4": {"true"}, "ipv6": {"true"}})),
+				makeClusterCIDR("low-ip-cc", "10.1.0.0/24", "fd00:10:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
+				makeClusterCIDR("a-low-ip-cc", "10.1.0.0/24", "fd00:5:100::/120", 7, nodeSelector(map[string][]string{"apv4": {"true"}, "bpv6": {"true"}})),
+			},
+			makeNode("dualstack-node", map[string]string{"apv4": "true", "bpv6": "true", "ipv4": "true", "ipv6": "true", "match": "single"}),
+			[]string{"10.1.0.0/25", "fd00:5:100::/121"},
 		),
 	)
 })

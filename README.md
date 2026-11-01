@@ -119,11 +119,22 @@ spec:
 
 The `nodeSelector` follows the same rules as a Pod's `nodeAffinity`. The terms
 under `nodeSelectorTerms` are ORed, so a Node matches when any one term matches.
-Within a term every `matchExpressions` and `matchFields` entry must hold, and an
-empty term matches no Node. `matchFields` is evaluated against Node fields
-(`metadata.name`), not Node labels. A ClusterCIDR with no `nodeSelector` matches
-every Node. When several ClusterCIDRs match a Node, the one whose matching term
-carries the most requirements is used first.
+Within a term every `matchExpressions` and `matchFields` entry must hold. An
+empty `nodeSelectorTerms` list, or an empty term, matches no Node.
+`matchFields` is evaluated against the Node name, not Node labels: it supports
+only the `metadata.name` key, with the `In` or `NotIn` operator and a single
+value. The controller ignores a ClusterCIDR with any other `matchFields` entry
+and records a Warning event on it.
+
+A ClusterCIDR with no `nodeSelector` matches every Node, and is used only after
+every ClusterCIDR whose `nodeSelector` matches the Node. Among the ClusterCIDRs
+whose `nodeSelector` matches, the one whose matching term carries the most
+requirements is used first. Remaining ties go to the ClusterCIDR with fewer
+allocatable Pod CIDRs, then the smaller per-node CIDR, then the lower IP
+address, then the lower name.
+
+A Node that already has Pod CIDRs keeps them in the ClusterCIDR that contains
+them, even if the Node no longer matches its `nodeSelector`.
 
 More examples are available in the [`examples/`](./examples) directory.
 

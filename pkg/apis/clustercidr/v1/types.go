@@ -50,7 +50,12 @@ func (in *ClusterCIDR) Default() {}
 // +kubebuilder:validation:XValidation:message="A CIDR must be specified for ipv4 or ipv6.",rule="self.ipv4 != \"\" || self.ipv6 != \"\""
 type ClusterCIDRSpec struct {
 	// nodeSelector defines which nodes the config is applicable to.
-	// An empty or nil nodeSelector selects all nodes.
+	// A nil nodeSelector selects all nodes, and is used only after every
+	// ClusterCIDR whose nodeSelector matches the node. A nodeSelector without
+	// terms, or a term without requirements, selects no node.
+	// matchFields supports only the metadata.name key, with the In or NotIn
+	// operator and a single value. The controller ignores a ClusterCIDR with
+	// any other matchFields requirement and records a Warning event on it.
 	// This field is optional and immutable.
 	// +optional
 	// +kubebuilder:validation:XValidation:message="NodeSelector cannot be changed.",rule="oldSelf == self"

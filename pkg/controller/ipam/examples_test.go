@@ -32,11 +32,11 @@ import (
 
 // loadExampleCIDRMap maps the ClusterCIDRs of the given files in the examples
 // directory, the way the controller does when it creates them.
-func loadExampleCIDRMap(t *testing.T, files ...string) map[string]*clusterCIDRBucket {
+func loadExampleCIDRMap(t *testing.T, files ...string) map[string]*clusterCIDREntry {
 	t.Helper()
 
 	ra := &multiCIDRRangeAllocator{}
-	cidrMap := make(map[string]*clusterCIDRBucket)
+	cidrMap := make(map[string]*clusterCIDREntry)
 	for _, file := range files {
 		f, err := os.Open(filepath.Join("..", "..", "..", "examples", file))
 		require.NoError(t, err)
@@ -51,13 +51,11 @@ func loadExampleCIDRMap(t *testing.T, files ...string) map[string]*clusterCIDRBu
 			}
 			require.NoError(t, err, file)
 
-			key, err := nodeSelectorKey(clusterCIDR.Spec.NodeSelector)
-			require.NoError(t, err, clusterCIDR.Name)
-			matcher, err := newNodeSelectorMatcher(clusterCIDR.Spec.NodeSelector)
+			selector, err := newNodeSelectorMatcher(clusterCIDR.Spec.NodeSelector)
 			require.NoError(t, err, clusterCIDR.Name)
 			clusterCIDRSet, err := ra.createClusterCIDRSet(clusterCIDR, false)
 			require.NoError(t, err, clusterCIDR.Name)
-			require.NoError(t, ra.mapClusterCIDRSet(cidrMap, key, matcher, clusterCIDRSet))
+			require.NoError(t, ra.mapClusterCIDRSet(cidrMap, selector, clusterCIDRSet))
 		}
 	}
 	return cidrMap
