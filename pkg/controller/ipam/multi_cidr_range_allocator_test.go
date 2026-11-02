@@ -2131,7 +2131,7 @@ func TestHandleNodeDeleteWithTombstone(t *testing.T) {
 
 	tests := []struct {
 		name string
-		obj  interface{}
+		obj  any
 	}{
 		{
 			name: "regular node object",
