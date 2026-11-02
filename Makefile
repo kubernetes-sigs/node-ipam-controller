@@ -111,7 +111,7 @@ test-charts: ## Lint and test charts.
 
 .PHONY: build
 build: manifests generate fmt ## Build the binary.
-	${GOENV} go build -o bin/node-ipam-controller -ldflags "$(LDFLAGS)"
+	${GOENV} go build -o bin/node-ipam-controller -ldflags "$(LDFLAGS)" ./cmd/node-ipam-controller
 
 # CONTAINER_TOOL defines the container tool to be used for building images.
 # Be aware that the target commands are only tested with Docker which is
