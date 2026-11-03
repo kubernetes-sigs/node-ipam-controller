@@ -77,7 +77,7 @@ func (pq PriorityQueue) Swap(i, j int) {
 	pq[j].index = j
 }
 
-func (pq *PriorityQueue) Push(x interface{}) {
+func (pq *PriorityQueue) Push(x any) {
 	n := len(*pq)
 	if item, ok := x.(*PriorityQueueItem); ok {
 		item.index = n
@@ -85,7 +85,7 @@ func (pq *PriorityQueue) Push(x interface{}) {
 	}
 }
 
-func (pq *PriorityQueue) Pop() interface{} {
+func (pq *PriorityQueue) Pop() any {
 	old := *pq
 	n := len(old)
 	item := old[n-1]

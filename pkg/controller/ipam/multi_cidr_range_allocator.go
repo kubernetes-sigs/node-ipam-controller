@@ -227,13 +227,13 @@ func NewMultiCIDRRangeAllocator(
 	}
 
 	_, err = clusterCIDRInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			key, err := cache.MetaNamespaceKeyFunc(obj)
 			if err == nil {
 				ra.cidrQueue.Add(key)
 			}
 		},
-		UpdateFunc: func(old, new interface{}) {
+		UpdateFunc: func(old, new any) {
 			if apiequality.Semantic.DeepEqual(old, new) {
 				return
 			}
@@ -243,7 +243,7 @@ func NewMultiCIDRRangeAllocator(
 				ra.cidrQueue.Add(key)
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			// IndexerInformer uses a delta cidrQueue, therefore for deletes we have to use this
 			// key function.
 			key, err := cache.DeletionHandlingMetaNamespaceKeyFunc(obj)
@@ -293,19 +293,19 @@ func NewMultiCIDRRangeAllocator(
 	}
 
 	_, err = nodeInformer.Informer().AddEventHandler(cache.ResourceEventHandlerFuncs{
-		AddFunc: func(obj interface{}) {
+		AddFunc: func(obj any) {
 			key, err := cache.MetaNamespaceKeyFunc(obj)
 			if err == nil {
 				ra.nodeQueue.Add(key)
 			}
 		},
-		UpdateFunc: func(old, new interface{}) {
+		UpdateFunc: func(old, new any) {
 			key, err := cache.MetaNamespaceKeyFunc(new)
 			if err == nil {
 				ra.nodeQueue.Add(key)
 			}
 		},
-		DeleteFunc: func(obj interface{}) {
+		DeleteFunc: func(obj any) {
 			ra.handleNodeDelete(logger, obj)
 		},
 	})
@@ -316,7 +316,7 @@ func NewMultiCIDRRangeAllocator(
 	return ra, nil
 }
 
-func (r *multiCIDRRangeAllocator) handleNodeDelete(logger klog.Logger, obj interface{}) {
+func (r *multiCIDRRangeAllocator) handleNodeDelete(logger klog.Logger, obj any) {
 	node, ok := obj.(*corev1.Node)
 	if !ok {
 		tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
