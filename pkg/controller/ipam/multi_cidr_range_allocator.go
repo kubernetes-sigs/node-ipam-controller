@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -597,10 +598,10 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	return fmt.Errorf("could not occupy cidrs: %v, no ClusterCIDR can hold them (%d tried)", node.Spec.PodCIDRs, attempts)
 }
 
-// recordEvent records an event on the node, or keeps it until Run started
+// recordEvent records an event on the object, or keeps it until Run started
 // sending events. Requires the caller to hold r.lock.
-func (r *multiCIDRRangeAllocator) recordEvent(node *corev1.Node, eventType, reason, messageFmt string, args ...any) {
-	record := func() { r.recorder.Eventf(node, eventType, reason, messageFmt, args...) }
+func (r *multiCIDRRangeAllocator) recordEvent(obj runtime.Object, eventType, reason, messageFmt string, args ...any) {
+	record := func() { r.recorder.Eventf(obj, eventType, reason, messageFmt, args...) }
 	if !r.eventsStarted {
 		r.pendingEvents = append(r.pendingEvents, record)
 		return
@@ -1235,9 +1236,21 @@ func (r *multiCIDRRangeAllocator) reconcileBootstrap(ctx context.Context, cluste
 // createClusterCIDR requires the caller to hold r.lock.
 // createClusterCIDR creates and maps the cidrSets in the cidrMap.
 func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, clusterCIDR *v1.ClusterCIDR, terminating bool, cidrMap map[string]*clusterCIDREntry) error {
+	logger := klog.FromContext(ctx)
 	selector, err := r.clusterCIDRNodeSelector(clusterCIDR)
 	if err != nil {
-		return fmt.Errorf("unable to parse node selector: %w", err)
+		// The node selector is immutable, so retrying can't help, and a node
+		// selector accepted before node selectors followed the core v1 semantics
+		// can be rejected now while nodes use the ClusterCIDR's CIDRs. Map the
+		// ClusterCIDR with a node selector that selects no node: it hands out no
+		// new CIDRs, the CIDRs its nodes have are still occupied in it, and it
+		// is not deleted while nodes use them.
+		if _, mapped := cidrMap[clusterCIDR.Name]; !mapped {
+			logger.Error(err, "Invalid node selector, the ClusterCIDR selects no node", "clusterCIDR", klog.KObj(clusterCIDR))
+			r.recordEvent(clusterCIDR, corev1.EventTypeWarning, "InvalidNodeSelector",
+				"Invalid node selector, the ClusterCIDR selects no node: %v", err)
+		}
+		selector = &nodeSelector{}
 	}
 
 	clusterCIDRSet, err := r.createClusterCIDRSet(clusterCIDR, terminating)
@@ -1259,7 +1272,6 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 		updatedClusterCIDR.Finalizers = append(updatedClusterCIDR.Finalizers, clusterCIDRFinalizer)
 	}
 
-	logger := klog.FromContext(ctx)
 	if updatedClusterCIDR.ResourceVersion == "" {
 		// Create is only used for creating default ClusterCIDR.
 		if _, err := r.networkClient.Create(ctx, updatedClusterCIDR, metav1.CreateOptions{}); err != nil {

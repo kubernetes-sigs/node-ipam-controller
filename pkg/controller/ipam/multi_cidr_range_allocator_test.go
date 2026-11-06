@@ -697,6 +697,57 @@ func TestOccupyCIDRsInClusterCIDRNotSelectingNode(t *testing.T) {
 	}
 }
 
+// TestBootstrapClusterCIDRWithInvalidNodeSelector asserts that a ClusterCIDR
+// whose node selector is rejected now, but was accepted before node selectors
+// followed the core v1 semantics, is loaded at startup: the Pod CIDRs of its
+// nodes are occupied in it, it is not deleted while they use them, and both
+// are reported once Run sends events.
+func TestBootstrapClusterCIDRWithInvalidNodeSelector(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	// Before, matchFields were label requirements, and DoesNotExist matched
+	// every node.
+	clusterCIDR := makeClusterCIDR("legacy", "10.1.0.0/16", "", 8, selectorWithTerms(fieldsTerm(
+		nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpDoesNotExist),
+	)))
+	clusterCIDR.ResourceVersion = "1"
+	clusterCIDR.Generation = 1
+	clusterCIDR.Finalizers = []string{clusterCIDRFinalizer}
+	node := makeNode("node-1", nil)
+	node.Spec.PodCIDRs = []string{"10.1.0.0/24"}
+
+	client := clustercidrfake.NewSimpleClientset(clusterCIDR)
+	cccInformer := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc()).Networking().V1().ClusterCIDRs()
+	nodeClient := fake.NewClientset(node)
+	nodeInformer := informers.NewSharedInformerFactory(nodeClient, NoResyncPeriodFunc()).Core().V1().Nodes()
+	allocator, err := NewMultiCIDRRangeAllocator(
+		ctx, nodeClient, client.NetworkingV1().ClusterCIDRs(), nodeInformer, cccInformer,
+		CIDRAllocatorParams{}, &corev1.NodeList{Items: []corev1.Node{*node}}, nil,
+	)
+	require.NoError(t, err)
+	ra := allocator.(*multiCIDRRangeAllocator)
+
+	require.Contains(t, ra.cidrMap, "legacy", "ClusterCIDR with an invalid node selector not loaded")
+	assertNodeOnlyIn(t, node, ra.cidrMap, "legacy")
+
+	recorder := record.NewFakeRecorder(10)
+	ra.recorder = recorder
+	ra.startEvents()
+	events := drainEvents(recorder)
+	require.Len(t, events, 2)
+	assert.Contains(t, events[0], "Warning InvalidNodeSelector Invalid node selector, the ClusterCIDR selects no node: ")
+	assert.Equal(t, "Warning ClusterCIDRNotSelectingNode Pod CIDRs [10.1.0.0/24] are in ClusterCIDR legacy, whose node selector doesn't select the node", events[1])
+
+	// Deleting the ClusterCIDR waits for the node.
+	deleting := clusterCIDR.DeepCopy()
+	now := metav1.Now()
+	deleting.DeletionTimestamp = &now
+	require.NoError(t, cccInformer.Informer().GetIndexer().Add(deleting))
+	require.Error(t, ra.syncClusterCIDR(ctx, deleting.Name))
+	updated, err := client.NetworkingV1().ClusterCIDRs().Get(ctx, clusterCIDR.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Contains(t, updated.Finalizers, clusterCIDRFinalizer)
+}
+
 // todo(mneverov): copied from cidr_allocator
 
 // nodePollInterval is used in listing node
@@ -3184,22 +3235,38 @@ func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 			nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpExists),
 		},
 	}))
+	// An object from the API server has a resource version, so the sync
+	// updates it rather than creating it.
+	testCCC.ResourceVersion = "1"
 	_, err := client.NetworkingV1().ClusterCIDRs().Create(ctx, testCCC, metav1.CreateOptions{})
 	require.NoError(t, err)
 	require.NoError(t, cccController.clusterCIDRStore.Add(testCCC))
+	recorder := record.NewFakeRecorder(10)
+	cccController.recorder = recorder
+	cccController.startEvents()
 
-	// The error makes the workqueue retry the ClusterCIDR.
-	err = cccController.syncClusterCIDR(ctx, testCCC.Name)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "nodeSelectorTerms[0].matchFields[0].operator")
+	// The node selector is immutable, retrying can't help: the ClusterCIDR is
+	// loaded, selecting no node.
+	require.NoError(t, cccController.syncClusterCIDR(ctx, testCCC.Name))
+	// The finalizer update syncs it again; it reports the selector once.
+	require.NoError(t, cccController.syncClusterCIDR(ctx, testCCC.Name))
 
 	cccController.lock.Lock()
-	assert.NotContains(t, cccController.cidrMap, testCCC.Name)
+	require.Contains(t, cccController.cidrMap, testCCC.Name)
+	entry := cccController.cidrMap[testCCC.Name]
+	require.NotNil(t, entry.selector, "a ClusterCIDR with an invalid node selector is a catch all one")
+	matches, _ := entry.selector.match(makeNode("node-1", map[string]string{"zone": "a"}))
+	assert.False(t, matches, "a ClusterCIDR with an invalid node selector selects a node")
 	cccController.lock.Unlock()
 
 	created, err := client.NetworkingV1().ClusterCIDRs().Get(ctx, testCCC.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.NotContains(t, created.Finalizers, clusterCIDRFinalizer)
+	assert.Contains(t, created.Finalizers, clusterCIDRFinalizer)
+
+	events := drainEvents(recorder)
+	require.Len(t, events, 1)
+	assert.Contains(t, events[0], "Warning InvalidNodeSelector Invalid node selector, the ClusterCIDR selects no node: ")
+	assert.Contains(t, events[0], "nodeSelectorTerms[0].matchFields[0].operator")
 }
 
 // TestNodeSelectorCannotAffectAnotherClusterCIDR asserts that a ClusterCIDR is
