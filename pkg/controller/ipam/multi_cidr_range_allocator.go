@@ -526,6 +526,32 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	if len(node.Spec.PodCIDRs) == 0 {
 		return nil
 	}
+
+	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
+	for _, cidr := range node.Spec.PodCIDRs {
+		_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
+		if err != nil {
+			return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
+		}
+		podCIDRs = append(podCIDRs, podCIDR)
+	}
+
+	// A node that is already associated with a ClusterCIDR keeps it, whatever
+	// the node labels, the ClusterCIDRs and their ranking are now. Looking for
+	// the first candidate again would associate the node with a second
+	// ClusterCIDR after its labels changed or a ClusterCIDR ranking higher for
+	// it was created, and that one would count the node and its CIDRs.
+	if clusterCIDR := associatedClusterCIDR(node.Name, podCIDRs, cidrMap); clusterCIDR != nil {
+		for _, podCIDR := range podCIDRs {
+			// The CIDRs are already occupied, unless the association is left over
+			// from a deleted node with the same name; occupying is idempotent.
+			if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
+				return fmt.Errorf("failed to occupy cidr %v in clusterCIDR %q associated with node %q: %w", podCIDR, clusterCIDR.Name, node.Name, err)
+			}
+		}
+		return nil
+	}
+
 	// Include terminating ClusterCIDRs: the node already uses these CIDRs, and
 	// the ClusterCIDR holding them must keep the node associated, so that it is
 	// not deleted while the node exists.
@@ -539,15 +565,6 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
 	if len(clusterCIDRList) == 0 {
 		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
-	}
-
-	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
-	for _, cidr := range node.Spec.PodCIDRs {
-		_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
-		if err != nil {
-			return fmt.Errorf("failed to parse CIDR %s on Node %v: %w", cidr, node.Name, err)
-		}
-		podCIDRs = append(podCIDRs, podCIDR)
 	}
 
 	attempts := 0
@@ -583,6 +600,22 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	}
 
 	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
+}
+
+// associatedClusterCIDR returns a ClusterCIDR that has the node associated and
+// whose ranges hold all of its Pod CIDRs, or nil if there is none. A node is
+// associated with a ClusterCIDR only after its Pod CIDRs were occupied in it or
+// allocated from it, and spec.podCIDRs is immutable once set, so the
+// association names where the CIDRs are. The range check leaves out an
+// association left over from a deleted node with the same name whose Pod CIDRs
+// were elsewhere. If several ClusterCIDRs qualify, any of them will do.
+func associatedClusterCIDR(nodeName string, podCIDRs []*net.IPNet, cidrMap map[string]*clusterCIDREntry) *cidrset.ClusterCIDR {
+	for _, entry := range cidrMap {
+		if entry.clusterCIDR.AssociatedNodes[nodeName] && canOccupy(entry.clusterCIDR, podCIDRs) {
+			return entry.clusterCIDR
+		}
+	}
+	return nil
 }
 
 // canOccupy returns whether the ClusterCIDR has a CIDRSet for the IP family of

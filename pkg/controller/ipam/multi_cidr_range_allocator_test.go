@@ -45,6 +45,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2/ktesting"
 	utilnet "k8s.io/utils/net"
 )
@@ -3118,9 +3119,25 @@ func assertNodeReleased(t *testing.T, node *corev1.Node, cidrMap map[string]*clu
 	}
 }
 
-// TestReleaseCIDRAfterHigherPriorityClusterCIDRCreated asserts that releasing a
-// node frees its Pod CIDRs in the ClusterCIDR they were allocated from, after a
-// ClusterCIDR that takes precedence for the node was created.
+// assertNodeOnlyIn asserts that the node is associated with the named
+// ClusterCIDR only, that its Pod CIDRs are allocated there, and that no other
+// ClusterCIDR has them allocated.
+func assertNodeOnlyIn(t *testing.T, node *corev1.Node, cidrMap map[string]*clusterCIDREntry, name string) {
+	t.Helper()
+
+	for entryName, entry := range cidrMap {
+		assert.Equal(t, entryName == name, entry.clusterCIDR.AssociatedNodes[node.Name], "association of node %s with ClusterCIDR %s", node.Name, entryName)
+		for _, podCIDR := range node.Spec.PodCIDRs {
+			_, cidr, err := utilnet.ParseCIDRSloppy(podCIDR)
+			require.NoError(t, err)
+			assert.Equal(t, entryName == name, entry.clusterCIDR.IPv4CIDRSet.CIDROverlaps(cidr), "allocation of Pod CIDR %s in ClusterCIDR %s", podCIDR, entryName)
+		}
+	}
+}
+
+// TestReleaseCIDRAfterHigherPriorityClusterCIDRCreated asserts that a node keeps
+// the ClusterCIDR its Pod CIDRs were allocated from when a ClusterCIDR that takes
+// precedence for the node is created, and that releasing the node frees them.
 func TestReleaseCIDRAfterHigherPriorityClusterCIDRCreated(t *testing.T) {
 	zoneA := func() *corev1.NodeSelector {
 		return selectorWithTerms(expressionsTerm(
@@ -3173,6 +3190,7 @@ func TestReleaseCIDRAfterHigherPriorityClusterCIDRCreated(t *testing.T) {
 
 			// Any node update, e.g. a kubelet heartbeat, syncs the node again.
 			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+			assertNodeOnlyIn(t, node, ra.cidrMap, "original")
 
 			require.NoError(t, ra.ReleaseCIDR(logger, node))
 			assertNodeReleased(t, node, ra.cidrMap)
@@ -3180,9 +3198,10 @@ func TestReleaseCIDRAfterHigherPriorityClusterCIDRCreated(t *testing.T) {
 	}
 }
 
-// TestReleaseCIDRAfterNodeLabelsChanged asserts that releasing a node frees its
-// Pod CIDRs in the ClusterCIDR they were allocated from, after the node labels
-// changed so that this ClusterCIDR does not select the node anymore.
+// TestReleaseCIDRAfterNodeLabelsChanged asserts that a node keeps the ClusterCIDR
+// its Pod CIDRs were allocated from after the node labels changed so that this
+// ClusterCIDR does not select the node anymore, and that releasing the node frees
+// them.
 func TestReleaseCIDRAfterNodeLabelsChanged(t *testing.T) {
 	zoneB := func() *corev1.NodeSelector {
 		return selectorWithTerms(expressionsTerm(
@@ -3196,24 +3215,18 @@ func TestReleaseCIDRAfterNodeLabelsChanged(t *testing.T) {
 		// otherSelector as node selector.
 		otherCIDR     string
 		otherSelector *corev1.NodeSelector
-		// wantSyncErr is whether syncing the relabeled node fails, because no
-		// ClusterCIDR that applies to it now can hold its Pod CIDRs.
-		wantSyncErr bool
 	}{
 		{
 			description: "no ClusterCIDR selects the node anymore",
-			wantSyncErr: true,
 		},
 		{
 			description:   "another ClusterCIDR selects the node now",
 			otherCIDR:     "10.1.0.0/16",
 			otherSelector: zoneB(),
-			wantSyncErr:   true,
 		},
 		{
 			description: "only a catch all ClusterCIDR applies to the node now",
 			otherCIDR:   "10.2.0.0/16",
-			wantSyncErr: true,
 		},
 		{
 			description:   "another ClusterCIDR containing the Pod CIDRs of the node selects the node now",
@@ -3248,15 +3261,69 @@ func TestReleaseCIDRAfterNodeLabelsChanged(t *testing.T) {
 			node.Labels = map[string]string{"zone": "b"}
 			require.NoError(t, nodeStore.Update(node))
 			require.NotContains(t, clusterCIDRNames(ra.orderedMatchingClusterCIDRs(node, false, ra.cidrMap)), "original")
-			err := ra.AllocateOrOccupyCIDR(logger, node)
-			if tc.wantSyncErr {
-				require.Error(t, err)
-			} else {
-				require.NoError(t, err)
-			}
+			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+			assertNodeOnlyIn(t, node, ra.cidrMap, "original")
 
 			require.NoError(t, ra.ReleaseCIDR(logger, node))
 			assertNodeReleased(t, node, ra.cidrMap)
 		})
 	}
+}
+
+// TestOccupyCIDRsKeepsTerminatingAssociatedClusterCIDR asserts that a node keeps
+// a terminating ClusterCIDR its Pod CIDRs were allocated from, rather than moving
+// to an overlapping ClusterCIDR, so that the terminating one is not deleted while
+// the node uses it.
+func TestOccupyCIDRsKeepsTerminatingAssociatedClusterCIDR(t *testing.T) {
+	logger, _ := ktesting.NewTestContext(t)
+	zoneA := selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+	))
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+	node.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+
+	original := makeTestClusterCIDREntry(t, "original", "10.0.0.0/16", 8, zoneA)
+	// Ranks below the original one: more allocatable CIDRs.
+	overlapping := makeTestClusterCIDREntry(t, "overlapping", "10.0.0.0/8", 8, zoneA)
+	ra, _ := newReleaseTestAllocator(t, makeTestCIDRMap(original, overlapping), node)
+	ra.cidrQueue = workqueue.NewTypedRateLimitingQueue(workqueue.DefaultTypedControllerRateLimiter[string]())
+	defer ra.cidrQueue.ShutDown()
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+	assertNodeOnlyIn(t, node, ra.cidrMap, "original")
+
+	original.clusterCIDR.Terminating = true
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+	assertNodeOnlyIn(t, node, ra.cidrMap, "original")
+
+	require.NoError(t, ra.ReleaseCIDR(logger, node))
+	assertNodeReleased(t, node, ra.cidrMap)
+	require.Equal(t, 1, ra.cidrQueue.Len(), "terminating ClusterCIDR not enqueued after its last node was released")
+	key, _ := ra.cidrQueue.Get()
+	defer ra.cidrQueue.Done(key)
+	assert.Equal(t, "original", key)
+}
+
+// TestOccupyCIDRsWithAssociationOutsideItsRange asserts that an association
+// whose ClusterCIDR can't hold the node's Pod CIDRs, left over from a deleted
+// node with the same name, doesn't stop the Pod CIDRs from being occupied.
+func TestOccupyCIDRsWithAssociationOutsideItsRange(t *testing.T) {
+	logger, _ := ktesting.NewTestContext(t)
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+	node.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+
+	original := makeTestClusterCIDREntry(t, "original", "10.0.0.0/16", 8, selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+	)))
+	stale := makeTestClusterCIDREntry(t, "stale", "10.1.0.0/16", 8, selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b"),
+	)))
+	stale.clusterCIDR.AssociatedNodes[node.Name] = true
+	ra, _ := newReleaseTestAllocator(t, makeTestCIDRMap(original, stale), node)
+
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+	assert.True(t, original.clusterCIDR.AssociatedNodes[node.Name], "node is not associated with ClusterCIDR original")
+	_, podCIDR, err := utilnet.ParseCIDRSloppy(node.Spec.PodCIDRs[0])
+	require.NoError(t, err)
+	assert.True(t, original.clusterCIDR.IPv4CIDRSet.CIDRAllocated(podCIDR), "Pod CIDR is not allocated in ClusterCIDR original")
 }
