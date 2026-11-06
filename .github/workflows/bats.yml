@@ -35,13 +35,21 @@ jobs:
       with:
         persist-credentials: false
 
+    # A pinned version and the token keep the action off the unauthenticated
+    # GitHub API, whose rate limit made the download fail. The tests use no
+    # bats libraries.
     - name: Set up bats
-      id: setup-bats
       uses: bats-core/bats-action@77d6fb60505b4d0d1d73e48bd035b55074bbfb43 # 4.0.0
+      with:
+        bats-version: 1.11.1
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+        support-install: false
+        assert-install: false
+        detik-install: false
+        file-install: false
 
     - name: Run bats tests
       env:
-        BATS_LIB_PATH: ${{ steps.setup-bats.outputs.lib-path }}
         TERM: xterm
       run: bats -T -o _artifacts --print-output-on-failure tests/
 
