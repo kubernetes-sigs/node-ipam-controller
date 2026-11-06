@@ -50,6 +50,7 @@ import (
 	netutil "k8s.io/utils/net"
 
 	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	clustercidrscheme "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/scheme"
 	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
 	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
@@ -119,6 +120,13 @@ type nodeReservedCIDRs struct {
 type multiCIDRNodeReservedCIDRs struct {
 	nodeReservedCIDRs
 	clusterCIDR *cidrset.ClusterCIDR
+}
+
+func init() {
+	// The event recorder builds the reference to the object of an event from
+	// scheme.Scheme. Objects from the informer cache carry no kind, so without
+	// the ClusterCIDR types the recorder drops the events on ClusterCIDRs.
+	utilruntime.Must(clustercidrscheme.AddToScheme(scheme.Scheme))
 }
 
 type multiCIDRRangeAllocator struct {

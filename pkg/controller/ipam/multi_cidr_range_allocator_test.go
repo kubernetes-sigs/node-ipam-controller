@@ -41,10 +41,12 @@ import (
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/client-go/kubernetes/scheme"
 	corelisters "k8s.io/client-go/listers/core/v1"
 	k8stesting "k8s.io/client-go/testing"
 	"k8s.io/client-go/tools/cache"
 	"k8s.io/client-go/tools/record"
+	"k8s.io/client-go/tools/reference"
 	"k8s.io/client-go/util/workqueue"
 	"k8s.io/klog/v2/ktesting"
 	utilnet "k8s.io/utils/net"
@@ -3225,6 +3227,19 @@ func TestSyncClusterCIDRDeleteWithUnparseableNodeSelector(t *testing.T) {
 // TestSyncClusterCIDRCreateWithUnparseableNodeSelector asserts that a ClusterCIDR
 // whose node selector cannot be parsed is not used for allocations, and does not
 // get the finalizer, so that it can be deleted without the controller.
+// TestClusterCIDREventReference asserts that the event recorder can refer to a
+// ClusterCIDR from the informer cache, which carries no kind. Without it, the
+// recorder drops the events on ClusterCIDRs.
+func TestClusterCIDREventReference(t *testing.T) {
+	clusterCIDR := makeClusterCIDR("no-kind", "10.1.0.0/16", "", 8, nil)
+	clusterCIDR.TypeMeta = metav1.TypeMeta{}
+
+	ref, err := reference.GetReference(scheme.Scheme, clusterCIDR)
+	require.NoError(t, err)
+	assert.Equal(t, "ClusterCIDR", ref.Kind)
+	assert.Equal(t, "networking.x-k8s.io/v1", ref.APIVersion)
+}
+
 func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)
