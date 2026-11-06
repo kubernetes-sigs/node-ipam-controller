@@ -586,6 +586,117 @@ func TestOccupyCIDRsInTerminatingClusterCIDR(t *testing.T) {
 	}
 }
 
+// TestOccupyCIDRsInClusterCIDRNotSelectingNode asserts that a node's Pod CIDRs
+// are occupied in the ClusterCIDR whose range holds them even if its node
+// selector doesn't select the node, at startup and on node sync, so that no
+// other node gets them, and that one Warning event on the node reports it.
+func TestOccupyCIDRsInClusterCIDRNotSelectingNode(t *testing.T) {
+	testCases := []struct {
+		description string
+		selector    *corev1.NodeSelector
+	}{
+		{
+			// Before the node selectors followed the core v1 semantics, matchFields
+			// were label requirements, and NotIn matched every node.
+			description: "matchFields excluding the node",
+			selector: selectorWithTerms(fieldsTerm(
+				nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpNotIn, "node-1"),
+			)),
+		},
+		{
+			// Before, an empty node selector term matched every node.
+			description: "empty node selector term",
+			selector:    selectorWithTerms(corev1.NodeSelectorTerm{}),
+		},
+		{
+			description: "node labels changed after the allocation",
+			selector: selectorWithTerms(expressionsTerm(
+				nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+			)),
+		},
+	}
+
+	for _, tc := range testCases {
+		node := makeNode("node-1", map[string]string{"zone": "b"})
+		node.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+		newNode := makeNode("node-2", map[string]string{"pool": "new"})
+
+		newCIDRMap := func(t *testing.T) map[string]*clusterCIDREntry {
+			return makeTestCIDRMap(
+				makeTestClusterCIDREntry(t, "original", "10.0.0.0/16", 8, tc.selector),
+				// Overlaps the original range and selects the new node only.
+				makeTestClusterCIDREntry(t, "other", "10.0.0.0/8", 8, selectorWithTerms(expressionsTerm(
+					nodeSelectorRequirement("pool", corev1.NodeSelectorOpIn, "new"),
+				))),
+			)
+		}
+		newAllocator := func(
+			t *testing.T, ctx context.Context, nodeList *corev1.NodeList, cidrMap map[string]*clusterCIDREntry,
+		) *multiCIDRRangeAllocator {
+			t.Helper()
+			fakeNodeHandler := &test.FakeNodeHandler{
+				Existing:  []*corev1.Node{node},
+				Clientset: fake.NewClientset(),
+			}
+			fakeInformerFactory := clustercidrinformer.NewSharedInformerFactory(
+				&clustercidrfake.Clientset{}, NoResyncPeriodFunc(),
+			)
+			allocator, err := NewMultiCIDRRangeAllocator(
+				ctx, fakeNodeHandler, clustercidrfake.NewSimpleClientset().NetworkingV1().ClusterCIDRs(),
+				test.FakeNodeInformer(fakeNodeHandler), fakeInformerFactory.Networking().V1().ClusterCIDRs(),
+				CIDRAllocatorParams{}, nodeList, cidrMap,
+			)
+			require.NoError(t, err)
+			return allocator.(*multiCIDRRangeAllocator)
+		}
+		assertOccupied := func(t *testing.T, ra *multiCIDRRangeAllocator) {
+			t.Helper()
+			logger, _ := ktesting.NewTestContext(t)
+			require.NotContains(t, clusterCIDRNames(ra.orderedMatchingClusterCIDRs(node, false, ra.cidrMap)), "original")
+			assertNodeOnlyIn(t, node, ra.cidrMap, "original")
+
+			cidrs, _, err := ra.prioritizedCIDRs(logger, newNode, ra.cidrMap)
+			require.NoError(t, err)
+			_, podCIDR, err := utilnet.ParseCIDRSloppy(node.Spec.PodCIDRs[0])
+			require.NoError(t, err)
+			for _, cidr := range cidrs {
+				assert.False(t, cidr.Contains(podCIDR.IP) || podCIDR.Contains(cidr.IP),
+					"new node got %v, which overlaps Pod CIDR %v of node %s", cidr, podCIDR, node.Name)
+			}
+		}
+
+		wantEvent := "Warning ClusterCIDRNotSelectingNode Pod CIDRs [10.0.0.0/24] are in ClusterCIDR original, whose node selector doesn't select the node"
+
+		t.Run(tc.description+", at startup", func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			ra := newAllocator(t, ctx, &corev1.NodeList{Items: []corev1.Node{*node}}, newCIDRMap(t))
+			assertOccupied(t, ra)
+
+			// The event sink starts in Run, after the startup occupy; the event
+			// must be kept until then, not dropped.
+			recorder := record.NewFakeRecorder(10)
+			ra.recorder = recorder
+			ra.startEvents()
+			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+			assert.Equal(t, []string{wantEvent}, drainEvents(recorder))
+		})
+
+		t.Run(tc.description+", on node sync", func(t *testing.T) {
+			logger, ctx := ktesting.NewTestContext(t)
+			ra := newAllocator(t, ctx, &corev1.NodeList{}, newCIDRMap(t))
+			recorder := record.NewFakeRecorder(10)
+			ra.recorder = recorder
+			ra.startEvents()
+
+			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+			assertOccupied(t, ra)
+			// The node keeps the ClusterCIDR now, a later sync reports nothing.
+			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+			assert.Equal(t, []string{wantEvent}, drainEvents(recorder))
+		})
+	}
+}
+
 // todo(mneverov): copied from cidr_allocator
 
 // nodePollInterval is used in listing node
@@ -2905,6 +3016,33 @@ func TestOrderedMatchingClusterCIDRsCatchAll(t *testing.T) {
 	})
 }
 
+// TestNonMatchingClusterCIDRs asserts that the ClusterCIDRs whose node selector
+// doesn't select the node are listed in priority order, terminating ones
+// included, without the catch all ones and the ones selecting the node.
+func TestNonMatchingClusterCIDRs(t *testing.T) {
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+	zoneSelector := func(zone string) *corev1.NodeSelector {
+		return selectorWithTerms(expressionsTerm(nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, zone)))
+	}
+
+	terminating := makeTestClusterCIDREntry(t, "zone-c-terminating", "10.4.0.0/24", 4, zoneSelector("c"))
+	terminating.clusterCIDR.Terminating = true
+	cidrMap := makeTestCIDRMap(
+		makeTestClusterCIDREntry(t, "zone-a", "10.0.0.0/24", 4, zoneSelector("a")),
+		makeTestClusterCIDREntry(t, "catch-all", "10.1.0.0/24", 4, nil),
+		makeTestClusterCIDREntry(t, "zone-b", "10.2.0.0/24", 4, zoneSelector("b")),
+		// Fewer allocatable CIDRs, so it comes first.
+		makeTestClusterCIDREntry(t, "zone-b-small", "10.3.0.0/26", 4, zoneSelector("b")),
+		terminating,
+		// An empty term selects no node.
+		makeTestClusterCIDREntry(t, "empty-term", "10.5.0.0/24", 4, selectorWithTerms(corev1.NodeSelectorTerm{})),
+	)
+
+	assert.Equal(t,
+		[]string{"zone-b-small", "zone-b", "zone-c-terminating", "empty-term"},
+		clusterCIDRNames(nonMatchingClusterCIDRs(node, cidrMap)))
+}
+
 // TestMapAndDeleteClusterCIDRSet asserts that a ClusterCIDR is mapped once under
 // its name, with its parsed node selector, and unmapped again.
 func TestMapAndDeleteClusterCIDRSet(t *testing.T) {
@@ -3326,4 +3464,14 @@ func TestOccupyCIDRsWithAssociationOutsideItsRange(t *testing.T) {
 	_, podCIDR, err := utilnet.ParseCIDRSloppy(node.Spec.PodCIDRs[0])
 	require.NoError(t, err)
 	assert.True(t, original.clusterCIDR.IPv4CIDRSet.CIDRAllocated(podCIDR), "Pod CIDR is not allocated in ClusterCIDR original")
+}
+
+// drainEvents returns the events the recorder holds and closes it.
+func drainEvents(recorder *record.FakeRecorder) []string {
+	close(recorder.Events)
+	var events []string
+	for event := range recorder.Events {
+		events = append(events, event)
+	}
+	return events
 }

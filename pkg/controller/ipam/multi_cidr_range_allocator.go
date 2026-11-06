@@ -142,6 +142,12 @@ type multiCIDRRangeAllocator struct {
 	lock *sync.Mutex
 	// cidrMap maps ClusterCIDR names to the allocator state of the ClusterCIDR.
 	cidrMap map[string]*clusterCIDREntry
+	// eventsStarted is whether Run started sending events to the API server.
+	// Until then, recordEvent keeps the events in pendingEvents, which Run
+	// records once it has started, so that the events of the CIDRs occupied at
+	// startup are not dropped. Both are guarded by lock.
+	eventsStarted bool
+	pendingEvents []func()
 }
 
 // clusterCIDREntry is the allocator state of a single ClusterCIDR.
@@ -350,6 +356,7 @@ func (r *multiCIDRRangeAllocator) Run(ctx context.Context) {
 	logger.Info("Started sending events to API Server")
 	r.broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: r.client.CoreV1().Events("")})
 	defer r.broadcaster.Shutdown()
+	r.startEvents()
 
 	defer r.cidrQueue.ShutDown()
 	defer r.nodeQueue.ShutDown()
@@ -552,10 +559,34 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		return nil
 	}
 
-	// Include terminating ClusterCIDRs: the node already uses these CIDRs, and
-	// the ClusterCIDR holding them must keep the node associated, so that it is
-	// not deleted while the node exists.
-	clusterCIDRList := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
+	// Occupy the CIDRs in the first ClusterCIDR that applies to the node and can
+	// hold them. Include terminating ClusterCIDRs: the node already uses these
+	// CIDRs, and the ClusterCIDR holding them must keep the node associated, so
+	// that it is not deleted while the node exists.
+	attempts := 0
+	for _, clusterCIDR := range r.orderedMatchingClusterCIDRs(node, false, cidrMap) {
+		attempts++
+		if r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
+			return nil
+		}
+	}
+
+	// Node selectors decide where new CIDRs come from, not where existing ones
+	// are. CIDRs allocated before the node labels changed, or before an upgrade
+	// changed which nodes a node selector selects, can be in a ClusterCIDR that
+	// doesn't select the node anymore. Left untracked, that ClusterCIDR could
+	// hand them to another node, and be deleted while the node uses them.
+	for _, clusterCIDR := range nonMatchingClusterCIDRs(node, cidrMap) {
+		attempts++
+		if r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
+			logger.Info("Node Pod CIDRs are in a ClusterCIDR that doesn't select the node, keeping them there",
+				"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+			r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotSelectingNode",
+				"Pod CIDRs %v are in ClusterCIDR %s, whose node selector doesn't select the node",
+				node.Spec.PodCIDRs, clusterCIDR.Name)
+			return nil
+		}
+	}
 
 	// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
 	// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
@@ -563,43 +594,57 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
 	// fail and retry a couple of time can provide information to these users.
 	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
-	if len(clusterCIDRList) == 0 {
-		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
+	return fmt.Errorf("could not occupy cidrs: %v, no ClusterCIDR can hold them (%d tried)", node.Spec.PodCIDRs, attempts)
+}
+
+// recordEvent records an event on the node, or keeps it until Run started
+// sending events. Requires the caller to hold r.lock.
+func (r *multiCIDRRangeAllocator) recordEvent(node *corev1.Node, eventType, reason, messageFmt string, args ...any) {
+	record := func() { r.recorder.Eventf(node, eventType, reason, messageFmt, args...) }
+	if !r.eventsStarted {
+		r.pendingEvents = append(r.pendingEvents, record)
+		return
+	}
+	record()
+}
+
+// startEvents records the events kept by recordEvent, and makes it record the
+// later ones at once. Run calls it once the event sink has started.
+func (r *multiCIDRRangeAllocator) startEvents() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	r.eventsStarted = true
+	for _, record := range r.pendingEvents {
+		record()
+	}
+	r.pendingEvents = nil
+}
+
+// occupyNodeCIDRs occupies the node's Pod CIDRs in the ClusterCIDR and
+// associates the node with it, if the ClusterCIDR can hold all of them. It
+// returns whether it did.
+func (r *multiCIDRRangeAllocator) occupyNodeCIDRs(logger klog.Logger, node *corev1.Node, clusterCIDR *cidrset.ClusterCIDR, podCIDRs []*net.IPNet) bool {
+	// Check every Pod CIDR before occupying any: a CIDR occupied before a later
+	// one fails would stay allocated in a ClusterCIDR that doesn't have the node
+	// associated, and nothing would release it.
+	if !canOccupy(clusterCIDR, podCIDRs) {
+		logger.V(3).Info("ClusterCIDR can't hold every node CIDR, trying next range",
+			"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
+		return false
 	}
 
-	attempts := 0
-	for _, clusterCIDR := range clusterCIDRList {
-		occupiedCount := 0
-		attempts++
+	for _, podCIDR := range podCIDRs {
+		logger.Info("occupy CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node), "clusterCIDR", clusterCIDR.Name)
 
-		// Check every Pod CIDR before occupying any: a CIDR occupied before a
-		// later one fails would stay allocated in a ClusterCIDR that doesn't have
-		// the node associated, and nothing would release it.
-		if !canOccupy(clusterCIDR, podCIDRs) {
-			logger.V(3).Info("ClusterCIDR can't hold every node CIDR, trying next range",
-				"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
-			continue
-		}
-
-		for _, podCIDR := range podCIDRs {
-			logger.Info("occupy CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node))
-
-			if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
-				logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
-				break
-			}
-
-			occupiedCount++
-		}
-
-		// Mark CIDRs as occupied only if the CCC is able to occupy all the node CIDRs.
-		if occupiedCount == len(node.Spec.PodCIDRs) {
-			clusterCIDR.AssociatedNodes[node.Name] = true
-			return nil
+		if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
+			logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
+			return false
 		}
 	}
 
-	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
+	clusterCIDR.AssociatedNodes[node.Name] = true
+	return true
 }
 
 // associatedClusterCIDR returns a ClusterCIDR that has the node associated and
@@ -1007,6 +1052,29 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 	}
 
 	return false
+}
+
+// nonMatchingClusterCIDRs returns the ClusterCIDRs whose node selector doesn't
+// select the node, terminating ones included, in priority order. Together with
+// orderedMatchingClusterCIDRs(node, false, cidrMap), it lists every ClusterCIDR.
+func nonMatchingClusterCIDRs(node *corev1.Node, cidrMap map[string]*clusterCIDREntry) []*cidrset.ClusterCIDR {
+	pq := make(PriorityQueue, 0)
+	for _, entry := range cidrMap {
+		// A ClusterCIDR without a node selector applies to every node.
+		if entry.selector == nil {
+			continue
+		}
+		if matches, _ := entry.selector.match(node); matches {
+			continue
+		}
+		heap.Push(&pq, &PriorityQueueItem{clusterCIDR: entry.clusterCIDR})
+	}
+
+	clusterCIDRs := make([]*cidrset.ClusterCIDR, 0, pq.Len())
+	for pq.Len() > 0 {
+		clusterCIDRs = append(clusterCIDRs, heap.Pop(&pq).(*PriorityQueueItem).clusterCIDR)
+	}
+	return clusterCIDRs
 }
 
 // orderedMatchingClusterCIDRs requires the caller to hold r.lock.
