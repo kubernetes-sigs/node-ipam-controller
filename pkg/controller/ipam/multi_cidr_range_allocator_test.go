@@ -3662,3 +3662,34 @@ func TestReleaseCIDRKeepsPerNodeBlockSharedWithAnotherNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, wide.clusterCIDR.IPv4CIDRSet.CIDROverlaps(podCIDR), "Pod CIDR of node-b is not reserved")
 }
+
+func TestBootstrapDeletingClusterCIDRIsTerminating(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	// A catch-all ClusterCIDR. The API server bumps the generation when it sets
+	// the deletion timestamp; the controller must not rely on that.
+	clusterCIDR := makeClusterCIDR("deleting", "10.1.0.0/16", "", 8, nil)
+	clusterCIDR.ResourceVersion = "1"
+	clusterCIDR.Generation = 1
+	clusterCIDR.Finalizers = []string{clusterCIDRFinalizer}
+	now := metav1.Now()
+	clusterCIDR.DeletionTimestamp = &now
+	node := makeNode("node-1", nil)
+	node.Spec.PodCIDRs = []string{"10.1.0.0/24"}
+
+	client := clustercidrfake.NewSimpleClientset(clusterCIDR)
+	cccInformer := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc()).Networking().V1().ClusterCIDRs()
+	nodeClient := fake.NewClientset(node)
+	nodeInformer := informers.NewSharedInformerFactory(nodeClient, NoResyncPeriodFunc()).Core().V1().Nodes()
+	allocator, err := NewMultiCIDRRangeAllocator(
+		ctx, nodeClient, client.NetworkingV1().ClusterCIDRs(), nodeInformer, cccInformer,
+		CIDRAllocatorParams{}, &corev1.NodeList{Items: []corev1.Node{*node}}, nil,
+	)
+	require.NoError(t, err)
+	ra := allocator.(*multiCIDRRangeAllocator)
+
+	require.Contains(t, ra.cidrMap, "deleting")
+	assert.True(t, ra.cidrMap["deleting"].clusterCIDR.Terminating, "ClusterCIDR being deleted is not terminating")
+	// The node keeps its Pod CIDR, and a new node gets none from the ClusterCIDR.
+	assertNodeOnlyIn(t, node, ra.cidrMap, "deleting")
+	assert.Empty(t, ra.orderedMatchingClusterCIDRs(makeNode("node-2", nil), true, ra.cidrMap))
+}

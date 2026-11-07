@@ -1275,12 +1275,26 @@ func (r *multiCIDRRangeAllocator) reconcileBootstrap(ctx context.Context, cluste
 	defer r.lock.Unlock()
 
 	logger := klog.FromContext(ctx)
-	terminating := false
-	// Create the ClusterCIDR only if the Spec has not been modified.
-	if clusterCIDR.Generation > 1 {
+	// A terminating ClusterCIDR hands out no new CIDRs. Node workers start
+	// together with the ClusterCIDR workers, so a ClusterCIDR being deleted must
+	// be terminating before reconcileDelete runs for it.
+	var terminating bool
+	switch {
+	case !clusterCIDR.DeletionTimestamp.IsZero():
+		// The API server also bumps the generation when it sets the deletion
+		// timestamp, so check the deletion first.
+		terminating = true
+		logger.Info("CIDRs from ClusterCIDR will not be used for allocation as it is being deleted", "clusterCIDR", klog.KObj(clusterCIDR))
+	case clusterCIDR.Generation > 1:
+		// The spec changed after creation: adding or removing an optional field
+		// passes the per-field immutability rules. Spec updates are not applied
+		// at runtime, so the CIDRs nodes hold may not match the current spec;
+		// hand out no new CIDRs from it.
 		terminating = true
 		err := fmt.Errorf("CIDRs from ClusterCIDR %s will not be used for allocation as it was modified", clusterCIDR.Name)
 		logger.Error(err, "ClusterCIDR Modified")
+	default:
+		terminating = false
 	}
 
 	logger.V(2).Info("Creating ClusterCIDR during bootstrap", "clusterCIDR", clusterCIDR.Name)
