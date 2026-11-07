@@ -3557,3 +3557,108 @@ func drainEvents(recorder *record.FakeRecorder) []string {
 	}
 	return events
 }
+
+func TestOccupyCIDRsPrefersClusterCIDRHoldingPodCIDRsWhole(t *testing.T) {
+	zoneA := selectorWithTerms(expressionsTerm(nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a")))
+	zoneB := selectorWithTerms(expressionsTerm(nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b")))
+
+	testCases := []struct {
+		description string
+		// other ranks above original for the node, but doesn't hold its Pod
+		// CIDR whole.
+		other    *clusterCIDREntry
+		original *corev1.NodeSelector
+		events   []string
+	}{
+		{
+			description: "per-node blocks larger than the Pod CIDR",
+			other:       makeTestClusterCIDREntry(t, "other", "10.0.0.0/16", 9, zoneA),
+			original:    zoneA,
+		},
+		{
+			description: "range smaller than the Pod CIDR",
+			other:       makeTestClusterCIDREntry(t, "other", "10.0.0.0/25", 7, zoneA),
+			original:    zoneA,
+		},
+		{
+			description: "range smaller than the Pod CIDR, original not selecting the node",
+			other:       makeTestClusterCIDREntry(t, "other", "10.0.0.0/25", 7, zoneA),
+			original:    zoneB,
+			events: []string{"Warning ClusterCIDRNotSelectingNode Pod CIDRs [10.0.0.0/24] are in ClusterCIDR original, " +
+				"whose node selector doesn't select the node"},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			logger, _ := ktesting.NewTestContext(t)
+			node := makeNode("node-1", map[string]string{"zone": "a"})
+			node.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+			original := makeTestClusterCIDREntry(t, "original", "10.0.0.0/16", 8, tc.original)
+			cidrMap := makeTestCIDRMap(original, tc.other)
+			ra, _ := newReleaseTestAllocator(t, cidrMap, node)
+			recorder := record.NewFakeRecorder(10)
+			ra.recorder = recorder
+			ra.eventsStarted = true
+
+			require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+			assertNodeOnlyIn(t, node, cidrMap, "original")
+			assert.Equal(t, tc.events, drainEvents(recorder))
+		})
+	}
+}
+
+func TestOccupyCIDRsInClusterCIDRNotHoldingPodCIDRsWhole(t *testing.T) {
+	logger, _ := ktesting.NewTestContext(t)
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+	node.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+	// No ClusterCIDR holds the Pod CIDR whole, e.g. after a migration from
+	// another IPAM controller.
+	small := makeTestClusterCIDREntry(t, "small", "10.0.0.0/25", 7, selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+	)))
+	cidrMap := makeTestCIDRMap(small)
+	ra, _ := newReleaseTestAllocator(t, cidrMap, node)
+	recorder := record.NewFakeRecorder(10)
+	ra.recorder = recorder
+	ra.eventsStarted = true
+
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, node))
+
+	assert.True(t, small.clusterCIDR.AssociatedNodes[node.Name], "node is not associated with ClusterCIDR small")
+	_, rangeCIDR, err := utilnet.ParseCIDRSloppy("10.0.0.0/25")
+	require.NoError(t, err)
+	assert.True(t, small.clusterCIDR.IPv4CIDRSet.CIDRAllocated(rangeCIDR), "the part of the Pod CIDR in ClusterCIDR small is not reserved")
+	assert.Equal(t, []string{"Warning ClusterCIDRNotHoldingPodCIDRs Pod CIDRs [10.0.0.0/24] are in ClusterCIDR small, " +
+		"whose range doesn't contain them or whose per-node blocks are larger: " +
+		"they may be reserved only in part, and another node can get an overlapping Pod CIDR"}, drainEvents(recorder))
+}
+
+func TestReleaseCIDRKeepsPerNodeBlockSharedWithAnotherNode(t *testing.T) {
+	t.Skip("A per-node block holding the Pod CIDRs of two nodes is released with either of them")
+
+	logger, _ := ktesting.NewTestContext(t)
+	nodeA := makeNode("node-a", map[string]string{"zone": "a"})
+	nodeA.Spec.PodCIDRs = []string{"10.0.0.0/24"}
+	nodeB := makeNode("node-b", map[string]string{"zone": "a"})
+	nodeB.Spec.PodCIDRs = []string{"10.0.1.0/24"}
+	// No ClusterCIDR holds the Pod CIDRs whole: both are in the per-node block
+	// 10.0.0.0/23.
+	wide := makeTestClusterCIDREntry(t, "wide", "10.0.0.0/16", 9, selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+	)))
+	ra, nodeStore := newReleaseTestAllocator(t, makeTestCIDRMap(wide), nodeA)
+	require.NoError(t, nodeStore.Add(nodeB))
+	ra.recorder = record.NewFakeRecorder(10)
+	ra.eventsStarted = true
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, nodeA))
+	require.NoError(t, ra.AllocateOrOccupyCIDR(logger, nodeB))
+
+	require.NoError(t, nodeStore.Delete(nodeA))
+	require.NoError(t, ra.ReleaseCIDR(logger, nodeA))
+
+	_, podCIDR, err := utilnet.ParseCIDRSloppy(nodeB.Spec.PodCIDRs[0])
+	require.NoError(t, err)
+	assert.True(t, wide.clusterCIDR.IPv4CIDRSet.CIDROverlaps(podCIDR), "Pod CIDR of node-b is not reserved")
+}

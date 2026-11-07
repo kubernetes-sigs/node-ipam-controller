@@ -568,31 +568,48 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		return nil
 	}
 
-	// Occupy the CIDRs in the first ClusterCIDR that applies to the node and can
-	// hold them. Include terminating ClusterCIDRs: the node already uses these
+	// The candidates are first the ClusterCIDRs that apply to the node, then the
+	// others. Include terminating ClusterCIDRs: the node already uses these
 	// CIDRs, and the ClusterCIDR holding them must keep the node associated, so
 	// that it is not deleted while the node exists.
-	attempts := 0
-	for _, clusterCIDR := range r.orderedMatchingClusterCIDRs(node, false, cidrMap) {
-		attempts++
-		if r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
-			return nil
-		}
-	}
-
+	//
 	// Node selectors decide where new CIDRs come from, not where existing ones
 	// are. CIDRs allocated before the node labels changed, or before an upgrade
 	// changed which nodes a node selector selects, can be in a ClusterCIDR that
 	// doesn't select the node anymore. Left untracked, that ClusterCIDR could
 	// hand them to another node, and be deleted while the node uses them.
-	for _, clusterCIDR := range nonMatchingClusterCIDRs(node, cidrMap) {
-		attempts++
-		if r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
-			logger.Info("Node Pod CIDRs are in a ClusterCIDR that doesn't select the node, keeping them there",
-				"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
-			r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotSelectingNode",
-				"Pod CIDRs %v are in ClusterCIDR %s, whose node selector doesn't select the node",
-				node.Spec.PodCIDRs, clusterCIDR.Name)
+	candidates := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
+	selecting := len(candidates)
+	candidates = append(candidates, nonMatchingClusterCIDRs(node, cidrMap)...)
+
+	// Occupy the CIDRs in the first candidate that holds them whole. If none
+	// does, e.g. for CIDRs from another IPAM controller, occupy them in the first
+	// candidate that can: reserving them in part still keeps that part from
+	// other nodes.
+	for _, whole := range []bool{true, false} {
+		for i, clusterCIDR := range candidates {
+			if whole && !holdsWhole(clusterCIDR, podCIDRs) {
+				continue
+			}
+			if !r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
+				continue
+			}
+
+			if i >= selecting {
+				logger.Info("Node Pod CIDRs are in a ClusterCIDR that doesn't select the node, keeping them there",
+					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+				r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotSelectingNode",
+					"Pod CIDRs %v are in ClusterCIDR %s, whose node selector doesn't select the node",
+					node.Spec.PodCIDRs, clusterCIDR.Name)
+			}
+			if !whole {
+				logger.Info("No ClusterCIDR holds the node Pod CIDRs whole, keeping them in one that overlaps them",
+					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+				r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotHoldingPodCIDRs",
+					"Pod CIDRs %v are in ClusterCIDR %s, whose range doesn't contain them or whose per-node blocks are larger: "+
+						"they may be reserved only in part, and another node can get an overlapping Pod CIDR",
+					node.Spec.PodCIDRs, clusterCIDR.Name)
+			}
 			return nil
 		}
 	}
@@ -603,7 +620,7 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
 	// fail and retry a couple of time can provide information to these users.
 	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
-	return fmt.Errorf("could not occupy cidrs: %v, no ClusterCIDR can hold them (%d tried)", node.Spec.PodCIDRs, attempts)
+	return fmt.Errorf("could not occupy cidrs: %v, no ClusterCIDR can hold them (%d tried)", node.Spec.PodCIDRs, len(candidates))
 }
 
 // recordEvent records an event on the object, or keeps it until Run started
@@ -677,13 +694,7 @@ func associatedClusterCIDR(nodeName string, podCIDRs []*net.IPNet, cidrMap map[s
 // under which MultiCIDRSet.Occupy accepts it.
 func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 	for _, cidr := range cidrs {
-		var cidrSet *cidrset.MultiCIDRSet
-		switch {
-		case netutil.IsIPv4CIDR(cidr):
-			cidrSet = clusterCIDR.IPv4CIDRSet
-		case netutil.IsIPv6CIDR(cidr):
-			cidrSet = clusterCIDR.IPv6CIDRSet
-		}
+		cidrSet := cidrSetFor(clusterCIDR, cidr)
 		if cidrSet == nil {
 			return false
 		}
@@ -694,6 +705,46 @@ func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 		}
 	}
 	return true
+}
+
+// holdsWhole returns whether, for every CIDR, the ClusterCIDR has a CIDRSet of
+// its IP family whose range contains the CIDR and whose per-node blocks are no
+// larger than it. MultiCIDRSet.Occupy accepts any CIDR that overlaps the range,
+// and reserves the wrong amount for the others.
+func holdsWhole(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
+	for _, cidr := range cidrs {
+		cidrSet := cidrSetFor(clusterCIDR, cidr)
+		if cidrSet == nil {
+			return false
+		}
+		maskSize, _ := cidr.Mask.Size()
+		rangeMaskSize, _ := cidrSet.ClusterCIDR.Mask.Size()
+		// A range smaller than the CIDR, e.g. 10.0.0.0/25 for 10.0.0.0/24: only
+		// the range is reserved, and the rest of the CIDR can go to another node.
+		if rangeMaskSize > maskSize || !cidrSet.ClusterCIDR.Contains(cidr.IP) {
+			return false
+		}
+		// A per-node block larger than the CIDR, e.g. 10.0.0.0/23 for
+		// 10.0.0.0/24: the block is shared with the other CIDRs in it, e.g.
+		// 10.0.1.0/24, and releasing either frees it while the other is in use.
+		if cidrSet.NodeMaskSize < maskSize {
+			return false
+		}
+	}
+	return true
+}
+
+// cidrSetFor returns the CIDRSet of the ClusterCIDR for the IP family of the
+// CIDR, or nil if it has none.
+func cidrSetFor(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) *cidrset.MultiCIDRSet {
+	switch {
+	case netutil.IsIPv4CIDR(cidr):
+		return clusterCIDR.IPv4CIDRSet
+	case netutil.IsIPv6CIDR(cidr):
+		return clusterCIDR.IPv6CIDRSet
+	default:
+		return nil
+	}
 }
 
 // associatedCIDRSet returns the CIDRSet, based on the ip family of the CIDR.
