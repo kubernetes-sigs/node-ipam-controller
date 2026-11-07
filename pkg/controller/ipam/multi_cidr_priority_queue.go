@@ -18,6 +18,7 @@ package ipam
 
 import (
 	"math"
+	"net/netip"
 
 	cidrset "sigs.k8s.io/node-ipam-controller/pkg/controller/ipam/multicidrset"
 )
@@ -27,10 +28,10 @@ import (
 // An PriorityQueueItem is something we manage in a priority queue.
 type PriorityQueueItem struct {
 	clusterCIDR *cidrset.ClusterCIDR
-	// labelMatchCount is the first determinant of priority.
-	labelMatchCount int
-	// selectorString is a string representation of the labelSelector associated with the cidrSet.
-	selectorString string
+	// matchCount is the number of requirements, labels and fields, in the
+	// largest node selector term that matches the node. It is the first
+	// determinant of priority.
+	matchCount int
 	// index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.
 }
@@ -43,12 +44,12 @@ func (pq PriorityQueue) Len() int { return len(pq) }
 // Less compares the priority queue items, to store in a min heap.
 // Less(i,j) == true denotes i has higher priority than j.
 func (pq PriorityQueue) Less(i, j int) bool {
-	if pq[i].labelMatchCount != pq[j].labelMatchCount {
-		// P0: CidrSet with higher number of matching labels has the highest priority.
-		return pq[i].labelMatchCount > pq[j].labelMatchCount
+	if pq[i].matchCount != pq[j].matchCount {
+		// P0: CidrSet with higher number of matching node selector requirements has the highest priority.
+		return pq[i].matchCount > pq[j].matchCount
 	}
 
-	// If the count of matching labels is equal, compare the max allocatable pod CIDRs.
+	// If the match counts are equal, compare the max allocatable pod CIDRs.
 	if pq[i].maxAllocatable() != pq[j].maxAllocatable() {
 		// P1: CidrSet with fewer allocatable pod CIDRs has higher priority.
 		return pq[i].maxAllocatable() < pq[j].maxAllocatable()
@@ -61,14 +62,15 @@ func (pq PriorityQueue) Less(i, j int) bool {
 		return pq[i].nodeMaskSize() > pq[j].nodeMaskSize()
 	}
 
-	// If the per node mask size are equal compare the CIDR labels.
-	if pq[i].selectorString != pq[j].selectorString {
-		// P3: CidrSet having label with lower alphanumeric value has higher priority.
-		return pq[i].selectorString < pq[j].selectorString
+	// If the per node mask size are equal compare the IP addresses.
+	if c := pq[i].cidrIP().Compare(pq[j].cidrIP()); c != 0 {
+		// P3: CidrSet having a smaller IP address has a higher priority.
+		return c < 0
 	}
 
-	// P4: CidrSet having an alpha-numerically smaller IP address value has a higher priority.
-	return pq[i].cidrLabel() < pq[j].cidrLabel()
+	// P4: CidrSet having a lower alphanumeric name has a higher priority. Names
+	// are unique, so this makes the order total.
+	return pq[i].clusterCIDR.Name < pq[j].clusterCIDR.Name
 }
 
 func (pq PriorityQueue) Swap(i, j int) {
@@ -130,11 +132,12 @@ func (pqi *PriorityQueueItem) nodeMaskSize() int {
 	return pqi.clusterCIDR.IPv6CIDRSet.NodeMaskSize
 }
 
-// cidrLabel returns IPv4 CIDR if present, else returns IPv6 CIDR.
-func (pqi *PriorityQueueItem) cidrLabel() string {
-	if pqi.clusterCIDR.IPv4CIDRSet != nil {
-		return pqi.clusterCIDR.IPv4CIDRSet.Label
+// cidrIP returns the IPv4 CIDR address if present, else returns the IPv6 CIDR address.
+func (pqi *PriorityQueueItem) cidrIP() netip.Addr {
+	cidrSet := pqi.clusterCIDR.IPv4CIDRSet
+	if cidrSet == nil {
+		cidrSet = pqi.clusterCIDR.IPv6CIDRSet
 	}
-
-	return pqi.clusterCIDR.IPv6CIDRSet.Label
+	ip, _ := netip.AddrFromSlice(cidrSet.ClusterCIDR.IP)
+	return ip.Unmap()
 }
