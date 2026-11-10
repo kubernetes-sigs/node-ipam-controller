@@ -2706,8 +2706,9 @@ func TestClusterCIDREventReference(t *testing.T) {
 }
 
 // TestSyncClusterCIDRCreateWithUnparseableNodeSelector asserts that a ClusterCIDR
-// whose node selector cannot be parsed is loaded selecting no node, and that the
-// node selector is reported once.
+// whose node selector cannot be parsed is loaded as selecting no node and gets
+// the finalizer. The sync is not retried, since the node selector is immutable,
+// and the InvalidNodeSelector event is reported once.
 func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)
