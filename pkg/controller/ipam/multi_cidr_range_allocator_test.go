@@ -3224,9 +3224,6 @@ func TestSyncClusterCIDRDeleteWithUnparseableNodeSelector(t *testing.T) {
 	assert.NotContains(t, updated.Finalizers, clusterCIDRFinalizer)
 }
 
-// TestSyncClusterCIDRCreateWithUnparseableNodeSelector asserts that a ClusterCIDR
-// whose node selector cannot be parsed is not used for allocations, and does not
-// get the finalizer, so that it can be deleted without the controller.
 // TestClusterCIDREventReference asserts that the event recorder can refer to a
 // ClusterCIDR from the informer cache, which carries no kind. Without it, the
 // recorder drops the events on ClusterCIDRs.
@@ -3240,6 +3237,10 @@ func TestClusterCIDREventReference(t *testing.T) {
 	assert.Equal(t, "networking.x-k8s.io/v1", ref.APIVersion)
 }
 
+// TestSyncClusterCIDRCreateWithUnparseableNodeSelector asserts that a ClusterCIDR
+// whose node selector cannot be parsed is loaded as selecting no node and gets
+// the finalizer. The sync is not retried, since the node selector is immutable,
+// and the InvalidNodeSelector event is reported once.
 func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)

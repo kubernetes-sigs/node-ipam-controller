@@ -694,8 +694,8 @@ func associatedClusterCIDR(nodeName string, podCIDRs []*net.IPNet, cidrMap map[s
 // under which MultiCIDRSet.Occupy accepts it.
 func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 	for _, cidr := range cidrs {
-		cidrSet := cidrSetFor(clusterCIDR, cidr)
-		if cidrSet == nil {
+		cidrSet, err := associatedCIDRSet(clusterCIDR, cidr)
+		if err != nil || cidrSet == nil {
 			return false
 		}
 		// CIDRs either nest or are disjoint, so they overlap if one contains the
@@ -713,8 +713,8 @@ func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 // and reserves the wrong amount for the others.
 func holdsWhole(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 	for _, cidr := range cidrs {
-		cidrSet := cidrSetFor(clusterCIDR, cidr)
-		if cidrSet == nil {
+		cidrSet, err := associatedCIDRSet(clusterCIDR, cidr)
+		if err != nil || cidrSet == nil {
 			return false
 		}
 		maskSize, _ := cidr.Mask.Size()
@@ -734,21 +734,9 @@ func holdsWhole(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 	return true
 }
 
-// cidrSetFor returns the CIDRSet of the ClusterCIDR for the IP family of the
-// CIDR, or nil if it has none.
-func cidrSetFor(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) *cidrset.MultiCIDRSet {
-	switch {
-	case netutil.IsIPv4CIDR(cidr):
-		return clusterCIDR.IPv4CIDRSet
-	case netutil.IsIPv6CIDR(cidr):
-		return clusterCIDR.IPv6CIDRSet
-	default:
-		return nil
-	}
-}
-
 // associatedCIDRSet returns the CIDRSet, based on the ip family of the CIDR.
-func (r *multiCIDRRangeAllocator) associatedCIDRSet(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) (*cidrset.MultiCIDRSet, error) {
+// The CIDRSet is nil if the ClusterCIDR has none for that family.
+func associatedCIDRSet(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) (*cidrset.MultiCIDRSet, error) {
 	switch {
 	case netutil.IsIPv4CIDR(cidr):
 		return clusterCIDR.IPv4CIDRSet, nil
@@ -761,7 +749,7 @@ func (r *multiCIDRRangeAllocator) associatedCIDRSet(clusterCIDR *cidrset.Cluster
 
 // Occupy marks the CIDR as occupied in the allocatedCIDRMap of the cidrSet.
 func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) error {
-	currCIDRSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+	currCIDRSet, err := associatedCIDRSet(clusterCIDR, cidr)
 	if err != nil {
 		return err
 	}
@@ -779,7 +767,7 @@ func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr 
 // Release marks the CIDR as free in the cidrSet used bitmap,
 // Also removes the CIDR from the allocatedCIDRSet.
 func (r *multiCIDRRangeAllocator) Release(logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) error {
-	currCIDRSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+	currCIDRSet, err := associatedCIDRSet(clusterCIDR, cidr)
 	if err != nil {
 		return err
 	}
@@ -922,7 +910,7 @@ func (r *multiCIDRRangeAllocator) filterOutServiceRange(logger klog.Logger, serv
 }
 
 func (r *multiCIDRRangeAllocator) occupyServiceCIDR(clusterCIDR *cidrset.ClusterCIDR, serviceCIDR *net.IPNet) error {
-	cidrSet, err := r.associatedCIDRSet(clusterCIDR, serviceCIDR)
+	cidrSet, err := associatedCIDRSet(clusterCIDR, serviceCIDR)
 	if err != nil {
 		return err
 	}
@@ -1083,7 +1071,7 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(
 // cidrInAllocatedList requires the caller to hold r.lock.
 func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string]*clusterCIDREntry) bool {
 	for _, entry := range cidrMap {
-		cidrSet, err := r.associatedCIDRSet(entry.clusterCIDR, cidr)
+		cidrSet, err := associatedCIDRSet(entry.clusterCIDR, cidr)
 		if err != nil {
 			logger.Error(err, "failed to associate CIDR set")
 			continue
@@ -1100,7 +1088,7 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *
 // cidrOverlapWithAllocatedList requires the caller to hold r.lock.
 func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string]*clusterCIDREntry) bool {
 	for _, entry := range cidrMap {
-		cidrSet, err := r.associatedCIDRSet(entry.clusterCIDR, cidr)
+		cidrSet, err := associatedCIDRSet(entry.clusterCIDR, cidr)
 		if err != nil {
 			logger.Error(err, "failed to associate CIDR set")
 			continue
@@ -1150,8 +1138,7 @@ func nonMatchingClusterCIDRs(node *corev1.Node, cidrMap map[string]*clusterCIDRE
 // P4: ClusterCIDR with the lower alphanumeric name has a higher priority.
 //
 // forAllocation leaves out terminating ClusterCIDRs, so that they hand out no new
-// CIDRs. Occupying CIDRs a node already has and releasing them include terminating
-// ClusterCIDRs.
+// CIDRs. Occupying CIDRs a node already has includes terminating ClusterCIDRs.
 func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, forAllocation bool, cidrMap map[string]*clusterCIDREntry) []*cidrset.ClusterCIDR {
 	selected := make(PriorityQueue, 0)
 	catchAll := make(PriorityQueue, 0)
