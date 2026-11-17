@@ -45,6 +45,11 @@ func parseNodeSelector(ns *corev1.NodeSelector) (*nodeSelector, error) {
 	return &nodeSelector{selector: selector}, nil
 }
 
+// selectsNoNode returns a nodeSelector that selects no node.
+func selectsNoNode() *nodeSelector {
+	return &nodeSelector{selector: labels.Nothing()}
+}
+
 // match reports whether the node labels match all the selector requirements,
 // and the number of requirements the node labels match. The allocator uses that
 // count to prefer the ClusterCIDR with the most specific match.

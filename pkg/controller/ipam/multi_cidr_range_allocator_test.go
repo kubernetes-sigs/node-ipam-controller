@@ -586,6 +586,43 @@ func TestOccupyCIDRsInTerminatingClusterCIDR(t *testing.T) {
 	}
 }
 
+// TestBootstrapClusterCIDRWithInvalidNodeSelector asserts that a ClusterCIDR
+// whose node selector cannot be parsed is loaded at startup, and reported once
+// Run sends events.
+func TestBootstrapClusterCIDRWithInvalidNodeSelector(t *testing.T) {
+	_, ctx := ktesting.NewTestContext(t)
+	// Gt takes an integer value.
+	clusterCIDR := makeClusterCIDR("invalid", "10.1.0.0/16", "", 8, selectorWithTerms(expressionsTerm(
+		nodeSelectorRequirement("rank", corev1.NodeSelectorOpGt, "high"),
+	)))
+	clusterCIDR.ResourceVersion = "1"
+	clusterCIDR.Generation = 1
+
+	client := clustercidrfake.NewSimpleClientset(clusterCIDR)
+	cccInformer := clustercidrinformer.NewSharedInformerFactory(client, NoResyncPeriodFunc()).Networking().V1().ClusterCIDRs()
+	nodeClient := fake.NewClientset()
+	nodeInformer := informers.NewSharedInformerFactory(nodeClient, NoResyncPeriodFunc()).Core().V1().Nodes()
+	allocator, err := NewMultiCIDRRangeAllocator(
+		ctx, nodeClient, client.NetworkingV1().ClusterCIDRs(), nodeInformer, cccInformer,
+		CIDRAllocatorParams{}, &corev1.NodeList{}, nil,
+	)
+	require.NoError(t, err)
+	ra := allocator.(*multiCIDRRangeAllocator)
+
+	require.Contains(t, ra.cidrMap, "invalid", "ClusterCIDR with an invalid node selector not loaded")
+	updated, err := client.NetworkingV1().ClusterCIDRs().Get(ctx, clusterCIDR.Name, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Contains(t, updated.Finalizers, clusterCIDRFinalizer)
+
+	// The event recorded at startup is kept until Run sends events.
+	recorder := record.NewFakeRecorder(10)
+	ra.recorder = recorder
+	ra.startEvents()
+	events := drainEvents(recorder)
+	require.Len(t, events, 1)
+	assert.Contains(t, events[0], "Warning InvalidNodeSelector Invalid node selector, the ClusterCIDR selects no node: ")
+}
+
 // todo(mneverov): copied from cidr_allocator
 
 // nodePollInterval is used in listing node
@@ -2654,8 +2691,8 @@ func TestSyncClusterCIDRDeleteWithUnparseableNodeSelector(t *testing.T) {
 }
 
 // TestSyncClusterCIDRCreateWithUnparseableNodeSelector asserts that a ClusterCIDR
-// whose node selector cannot be parsed is not used for allocations, and does not
-// get the finalizer, so that it can be deleted without the controller.
+// whose node selector cannot be parsed is loaded selecting no node, and that the
+// node selector is reported once.
 func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	_, ctx := ktesting.NewTestContext(t)
 	client, cccController := newController(ctx)
@@ -2664,22 +2701,38 @@ func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	testCCC := makeClusterCIDR("unparseable", "10.1.0.0/16", "", 8, selectorWithTerms(expressionsTerm(
 		nodeSelectorRequirement("rank", corev1.NodeSelectorOpGt, "high"),
 	)))
+	// An object from the API server has a resource version, so the sync
+	// updates it rather than creating it.
+	testCCC.ResourceVersion = "1"
 	_, err := client.NetworkingV1().ClusterCIDRs().Create(ctx, testCCC, metav1.CreateOptions{})
 	require.NoError(t, err)
 	require.NoError(t, cccController.clusterCIDRStore.Add(testCCC))
+	recorder := record.NewFakeRecorder(10)
+	cccController.recorder = recorder
+	cccController.startEvents()
 
-	// The error makes the workqueue retry the ClusterCIDR.
-	err = cccController.syncClusterCIDR(ctx, testCCC.Name)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "must be an integer")
+	// The node selector is immutable, retrying can't help: the ClusterCIDR is
+	// loaded, selecting no node.
+	require.NoError(t, cccController.syncClusterCIDR(ctx, testCCC.Name))
+	// The finalizer update syncs it again; it reports the selector once.
+	require.NoError(t, cccController.syncClusterCIDR(ctx, testCCC.Name))
 
 	cccController.lock.Lock()
-	assert.NotContains(t, cccController.cidrMap, testCCC.Name)
+	require.Contains(t, cccController.cidrMap, testCCC.Name)
+	entry := cccController.cidrMap[testCCC.Name]
+	require.NotNil(t, entry.selector, "a ClusterCIDR with an invalid node selector is a catch all one")
+	matches, _ := entry.selector.match(makeNode("node-1", map[string]string{"rank": "7"}))
+	assert.False(t, matches, "a ClusterCIDR with an invalid node selector selects a node")
 	cccController.lock.Unlock()
 
 	created, err := client.NetworkingV1().ClusterCIDRs().Get(ctx, testCCC.Name, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.NotContains(t, created.Finalizers, clusterCIDRFinalizer)
+	assert.Contains(t, created.Finalizers, clusterCIDRFinalizer)
+
+	events := drainEvents(recorder)
+	require.Len(t, events, 1)
+	assert.Contains(t, events[0], "Warning InvalidNodeSelector Invalid node selector, the ClusterCIDR selects no node: ")
+	assert.Contains(t, events[0], "must be an integer")
 }
 
 // newReleaseTestAllocator returns an allocator with the given cidrMap, whose node
@@ -2918,4 +2971,13 @@ func TestOccupyCIDRsWithAssociationOutsideItsRange(t *testing.T) {
 	_, podCIDR, err := utilnet.ParseCIDRSloppy(node.Spec.PodCIDRs[0])
 	require.NoError(t, err)
 	assert.True(t, original.clusterCIDR.IPv4CIDRSet.CIDRAllocated(podCIDR), "Pod CIDR is not allocated in ClusterCIDR original")
+}
+
+func drainEvents(recorder *record.FakeRecorder) []string {
+	close(recorder.Events)
+	var events []string
+	for event := range recorder.Events {
+		events = append(events, event)
+	}
+	return events
 }

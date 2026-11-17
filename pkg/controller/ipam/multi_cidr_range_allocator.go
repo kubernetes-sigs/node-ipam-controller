@@ -33,6 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -144,6 +145,12 @@ type multiCIDRRangeAllocator struct {
 	lock *sync.Mutex
 	// cidrMap maps ClusterCIDR names to the allocator state of the ClusterCIDR.
 	cidrMap map[string]*clusterCIDREntry
+	// eventsStarted is whether Run started sending events to the API server.
+	// Until then, recordEvent keeps the events in pendingEvents, which Run
+	// records once it has started, so that the events recorded at startup are
+	// not dropped. Both are guarded by lock.
+	eventsStarted bool
+	pendingEvents []func()
 }
 
 // clusterCIDREntry is the allocator state of a single ClusterCIDR.
@@ -352,6 +359,7 @@ func (r *multiCIDRRangeAllocator) Run(ctx context.Context) {
 	logger.Info("Started sending events to API Server")
 	r.broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: r.client.CoreV1().Events("")})
 	defer r.broadcaster.Shutdown()
+	r.startEvents()
 
 	defer r.cidrQueue.ShutDown()
 	defer r.nodeQueue.ShutDown()
@@ -602,6 +610,30 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 	}
 
 	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
+}
+
+// recordEvent records an event on the object, or keeps it until Run started
+// sending events. Requires the caller to hold r.lock.
+func (r *multiCIDRRangeAllocator) recordEvent(obj runtime.Object, eventType, reason, messageFmt string, args ...any) {
+	record := func() { r.recorder.Eventf(obj, eventType, reason, messageFmt, args...) }
+	if !r.eventsStarted {
+		r.pendingEvents = append(r.pendingEvents, record)
+		return
+	}
+	record()
+}
+
+// startEvents records the events kept by recordEvent, and makes it record the
+// later ones at once. Run calls it once the event sink has started.
+func (r *multiCIDRRangeAllocator) startEvents() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	r.eventsStarted = true
+	for _, record := range r.pendingEvents {
+		record()
+	}
+	r.pendingEvents = nil
 }
 
 // associatedClusterCIDR returns a ClusterCIDR that has the node associated and
@@ -1188,9 +1220,18 @@ func (r *multiCIDRRangeAllocator) reconcileBootstrap(ctx context.Context, cluste
 // createClusterCIDR requires the caller to hold r.lock.
 // createClusterCIDR creates and maps the cidrSets in the cidrMap.
 func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, clusterCIDR *v1.ClusterCIDR, terminating bool, cidrMap map[string]*clusterCIDREntry) error {
+	logger := klog.FromContext(ctx)
 	selector, err := r.clusterCIDRNodeSelector(clusterCIDR)
 	if err != nil {
-		return fmt.Errorf("unable to parse node selector: %w", err)
+		// The node selector is immutable, so retrying can't help. Map the
+		// ClusterCIDR with a node selector that selects no node, so that it
+		// hands out no CIDRs, and report the node selector once.
+		if _, mapped := cidrMap[clusterCIDR.Name]; !mapped {
+			logger.Error(err, "Invalid node selector, the ClusterCIDR selects no node", "clusterCIDR", klog.KObj(clusterCIDR))
+			r.recordEvent(clusterCIDR, corev1.EventTypeWarning, "InvalidNodeSelector",
+				"Invalid node selector, the ClusterCIDR selects no node: %v", err)
+		}
+		selector = selectsNoNode()
 	}
 
 	clusterCIDRSet, err := r.createClusterCIDRSet(clusterCIDR, terminating)
@@ -1212,7 +1253,6 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 		updatedClusterCIDR.Finalizers = append(updatedClusterCIDR.Finalizers, clusterCIDRFinalizer)
 	}
 
-	logger := klog.FromContext(ctx)
 	if updatedClusterCIDR.ResourceVersion == "" {
 		// Create is only used for creating default ClusterCIDR.
 		if _, err := r.networkClient.Create(ctx, updatedClusterCIDR, metav1.CreateOptions{}); err != nil {
