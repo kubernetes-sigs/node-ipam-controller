@@ -33,7 +33,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/fields"
 	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/wait"
@@ -50,6 +50,7 @@ import (
 	netutil "k8s.io/utils/net"
 
 	v1 "sigs.k8s.io/node-ipam-controller/pkg/apis/clustercidr/v1"
+	clustercidrscheme "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/scheme"
 	clustercidrclient "sigs.k8s.io/node-ipam-controller/pkg/client/clientset/versioned/typed/clustercidr/v1"
 	clustercidrinformers "sigs.k8s.io/node-ipam-controller/pkg/client/informers/externalversions/clustercidr/v1"
 	clustercidrlisters "sigs.k8s.io/node-ipam-controller/pkg/client/listers/clustercidr/v1"
@@ -58,8 +59,6 @@ import (
 )
 
 const (
-	defaultClusterCIDRKey        = "kubernetes.io/clusterCIDR"
-	defaultClusterCIDRValue      = "default"
 	defaultClusterCIDRName       = "default-cluster-cidr"
 	defaultClusterCIDRAPIVersion = "networking.x-k8s.io/v1"
 	clusterCIDRFinalizer         = "networking.x-k8s.io/cluster-cidr-finalizer"
@@ -123,6 +122,13 @@ type multiCIDRNodeReservedCIDRs struct {
 	clusterCIDR *cidrset.ClusterCIDR
 }
 
+func init() {
+	// The event recorder builds the reference to the object of an event from
+	// scheme.Scheme. Objects from the informer cache carry no kind, so without
+	// the ClusterCIDR types the recorder drops the events on ClusterCIDRs.
+	utilruntime.Must(clustercidrscheme.AddToScheme(scheme.Scheme))
+}
+
 type multiCIDRRangeAllocator struct {
 	client        clientset.Interface
 	networkClient clustercidrclient.ClusterCIDRInterface
@@ -143,8 +149,22 @@ type multiCIDRRangeAllocator struct {
 
 	// lock guards cidrMap to avoid races in CIDR allocation.
 	lock *sync.Mutex
-	// cidrMap maps ClusterCIDR labels to internal ClusterCIDR objects.
-	cidrMap map[string][]*cidrset.ClusterCIDR
+	// cidrMap maps ClusterCIDR names to the allocator state of the ClusterCIDR.
+	cidrMap map[string]*clusterCIDREntry
+	// eventsStarted is whether Run started sending events to the API server.
+	// Until then, recordEvent keeps the events in pendingEvents, which Run
+	// records once it has started, so that the events of the CIDRs occupied at
+	// startup are not dropped. Both are guarded by lock.
+	eventsStarted bool
+	pendingEvents []func()
+}
+
+// clusterCIDREntry is the allocator state of a single ClusterCIDR.
+type clusterCIDREntry struct {
+	clusterCIDR *cidrset.ClusterCIDR
+	// selector is the parsed node selector of the ClusterCIDR. It is nil for a
+	// ClusterCIDR without a node selector, which is the catch all config.
+	selector *nodeSelector
 }
 
 // NewMultiCIDRRangeAllocator returns a CIDRAllocator to allocate CIDRs for node (one for each ip family).
@@ -158,7 +178,7 @@ func NewMultiCIDRRangeAllocator(
 	clusterCIDRInformer clustercidrinformers.ClusterCIDRInformer,
 	allocatorParams CIDRAllocatorParams,
 	nodeList *corev1.NodeList,
-	testCIDRMap map[string][]*cidrset.ClusterCIDR,
+	testCIDRMap map[string]*clusterCIDREntry,
 ) (CIDRAllocator, error) {
 	logger := klog.FromContext(ctx)
 	if client == nil {
@@ -194,7 +214,7 @@ func NewMultiCIDRRangeAllocator(
 			workqueue.TypedRateLimitingQueueConfig[string]{Name: "multi_cidr_range_allocator_node"},
 		),
 		lock:    &sync.Mutex{},
-		cidrMap: make(map[string][]*cidrset.ClusterCIDR, 0),
+		cidrMap: make(map[string]*clusterCIDREntry, 0),
 	}
 
 	// testCIDRMap is only set for testing purposes.
@@ -345,6 +365,7 @@ func (r *multiCIDRRangeAllocator) Run(ctx context.Context) {
 	logger.Info("Started sending events to API Server")
 	r.broadcaster.StartRecordingToSink(&v1core.EventSinkImpl{Interface: r.client.CoreV1().Events("")})
 	defer r.broadcaster.Shutdown()
+	r.startEvents()
 
 	defer r.cidrQueue.ShutDown()
 	defer r.nodeQueue.ShutDown()
@@ -517,23 +538,9 @@ func (r *multiCIDRRangeAllocator) syncClusterCIDR(ctx context.Context, key strin
 
 // occupyCIDRs marks node.PodCIDRs[...] as used in allocator's tracked cidrSet.
 // Requires the caller to hold r.lock.
-func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.Node, cidrMap map[string][]*cidrset.ClusterCIDR) error {
+func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.Node, cidrMap map[string]*clusterCIDREntry) error {
 	if len(node.Spec.PodCIDRs) == 0 {
 		return nil
-	}
-	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true, cidrMap)
-	if err != nil {
-		return err
-	}
-
-	// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
-	// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
-	// not want to do that because they just want to get rid of that specific range. In the other hand, users
-	// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
-	// fail and retry a couple of time can provide information to these users.
-	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
-	if len(clusterCIDRList) == 0 {
-		return fmt.Errorf("could not occupy cidrs: %v, No matching ClusterCIDRs found", node.Spec.PodCIDRs)
 	}
 
 	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
@@ -545,45 +552,182 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		podCIDRs = append(podCIDRs, podCIDR)
 	}
 
-	attempts := 0
-	for _, clusterCIDR := range clusterCIDRList {
-		occupiedCount := 0
-		attempts++
-
-		if !hasCIDRSetsFor(clusterCIDR, podCIDRs) {
-			logger.V(3).Info("ClusterCIDR lacks the IP family of a node CIDR, trying next range",
-				"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
-			continue
-		}
-
+	// A node that is already associated with a ClusterCIDR keeps it, whatever
+	// the node labels, the ClusterCIDRs and their ranking are now. Looking for
+	// the first candidate again would associate the node with a second
+	// ClusterCIDR after its labels changed or a ClusterCIDR ranking higher for
+	// it was created, and that one would count the node and its CIDRs.
+	if clusterCIDR := associatedClusterCIDR(node.Name, podCIDRs, cidrMap); clusterCIDR != nil {
 		for _, podCIDR := range podCIDRs {
-			logger.Info("occupy CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node))
-
+			// The CIDRs are already occupied, unless the association is left over
+			// from a deleted node with the same name; occupying is idempotent.
 			if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
-				logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
-				break
+				return fmt.Errorf("failed to occupy cidr %v in clusterCIDR %q associated with node %q: %w", podCIDR, clusterCIDR.Name, node.Name, err)
+			}
+		}
+		return nil
+	}
+
+	// The candidates are first the ClusterCIDRs that apply to the node, then the
+	// others. Include terminating ClusterCIDRs: the node already uses these
+	// CIDRs, and the ClusterCIDR holding them must keep the node associated, so
+	// that it is not deleted while the node exists.
+	//
+	// Node selectors decide where new CIDRs come from, not where existing ones
+	// are. CIDRs allocated before the node labels changed, or before an upgrade
+	// changed which nodes a node selector selects, can be in a ClusterCIDR that
+	// doesn't select the node anymore. Left untracked, that ClusterCIDR could
+	// hand them to another node, and be deleted while the node uses them.
+	candidates := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
+	selecting := len(candidates)
+	candidates = append(candidates, nonMatchingClusterCIDRs(node, cidrMap)...)
+
+	// Occupy the CIDRs in the first candidate that holds them whole. If none
+	// does, e.g. for CIDRs from another IPAM controller, occupy them in the first
+	// candidate that can: reserving them in part still keeps that part from
+	// other nodes.
+	for _, whole := range []bool{true, false} {
+		for i, clusterCIDR := range candidates {
+			if whole && !holdsWhole(clusterCIDR, podCIDRs) {
+				continue
+			}
+			if !r.occupyNodeCIDRs(logger, node, clusterCIDR, podCIDRs) {
+				continue
 			}
 
-			occupiedCount++
-		}
-
-		// Mark CIDRs as occupied only if the CCC is able to occupy all the node CIDRs.
-		if occupiedCount == len(node.Spec.PodCIDRs) {
-			clusterCIDR.AssociatedNodes[node.Name] = true
+			if i >= selecting {
+				logger.Info("Node Pod CIDRs are in a ClusterCIDR that doesn't select the node, keeping them there",
+					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+				r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotSelectingNode",
+					"Pod CIDRs %v are in ClusterCIDR %s, whose node selector doesn't select the node",
+					node.Spec.PodCIDRs, clusterCIDR.Name)
+			}
+			if !whole {
+				logger.Info("No ClusterCIDR holds the node Pod CIDRs whole, keeping them in one that overlaps them",
+					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+				r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotHoldingPodCIDRs",
+					"Pod CIDRs %v are in ClusterCIDR %s, whose range doesn't contain them or whose per-node blocks are larger: "+
+						"they may be reserved only in part, and another node can get an overlapping Pod CIDR",
+					node.Spec.PodCIDRs, clusterCIDR.Name)
+			}
 			return nil
 		}
 	}
 
-	return fmt.Errorf("could not occupy cidrs: %v after %d attempts", node.Spec.PodCIDRs, attempts)
+	// There can be clusters with nodes that were handled by a different IPAM controller, in order to allow
+	// migrations to the new IPAM controller users can create a ClusterCIDR matching their values, but they may
+	// not want to do that because they just want to get rid of that specific range. In the other hand, users
+	// may not be aware of this problem and they may want to add a new CIDR, so letting the reconcile loop
+	// fail and retry a couple of time can provide information to these users.
+	// https://github.com/kubernetes-sigs/node-ipam-controller/issues/27
+	return fmt.Errorf("could not occupy cidrs: %v, no ClusterCIDR can hold them (%d tried)", node.Spec.PodCIDRs, len(candidates))
 }
 
-// hasCIDRSetsFor returns whether the ClusterCIDR has a CIDRSet for the IP family of every CIDR.
-func hasCIDRSetsFor(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
-	for _, cidr := range cidrs {
-		if netutil.IsIPv4CIDR(cidr) && clusterCIDR.IPv4CIDRSet == nil {
+// recordEvent records an event on the object, or keeps it until Run started
+// sending events. Requires the caller to hold r.lock.
+func (r *multiCIDRRangeAllocator) recordEvent(obj runtime.Object, eventType, reason, messageFmt string, args ...any) {
+	record := func() { r.recorder.Eventf(obj, eventType, reason, messageFmt, args...) }
+	if !r.eventsStarted {
+		r.pendingEvents = append(r.pendingEvents, record)
+		return
+	}
+	record()
+}
+
+// startEvents records the events kept by recordEvent, and makes it record the
+// later ones at once. Run calls it once the event sink has started.
+func (r *multiCIDRRangeAllocator) startEvents() {
+	r.lock.Lock()
+	defer r.lock.Unlock()
+
+	r.eventsStarted = true
+	for _, record := range r.pendingEvents {
+		record()
+	}
+	r.pendingEvents = nil
+}
+
+// occupyNodeCIDRs occupies the node's Pod CIDRs in the ClusterCIDR and
+// associates the node with it, if the ClusterCIDR can hold all of them. It
+// returns whether it did.
+func (r *multiCIDRRangeAllocator) occupyNodeCIDRs(logger klog.Logger, node *corev1.Node, clusterCIDR *cidrset.ClusterCIDR, podCIDRs []*net.IPNet) bool {
+	// Check every Pod CIDR before occupying any: a CIDR occupied before a later
+	// one fails would stay allocated in a ClusterCIDR that doesn't have the node
+	// associated, and nothing would release it.
+	if !canOccupy(clusterCIDR, podCIDRs) {
+		logger.V(3).Info("ClusterCIDR can't hold every node CIDR, trying next range",
+			"clusterCIDR", clusterCIDR.Name, "podCIDRs", node.Spec.PodCIDRs)
+		return false
+	}
+
+	for _, podCIDR := range podCIDRs {
+		logger.Info("occupy CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node), "clusterCIDR", clusterCIDR.Name)
+
+		if err := r.Occupy(clusterCIDR, podCIDR); err != nil {
+			logger.V(3).Info("Could not occupy cidr, trying next range", "podCIDRs", node.Spec.PodCIDRs, "err", err)
 			return false
 		}
-		if netutil.IsIPv6CIDR(cidr) && clusterCIDR.IPv6CIDRSet == nil {
+	}
+
+	clusterCIDR.AssociatedNodes[node.Name] = true
+	return true
+}
+
+// associatedClusterCIDR returns a ClusterCIDR that has the node associated and
+// whose ranges hold all of its Pod CIDRs, or nil if there is none. A node is
+// associated with a ClusterCIDR only after its Pod CIDRs were occupied in it or
+// allocated from it, and spec.podCIDRs is immutable once set, so the
+// association names where the CIDRs are. The range check leaves out an
+// association left over from a deleted node with the same name whose Pod CIDRs
+// were elsewhere. If several ClusterCIDRs qualify, any of them will do.
+func associatedClusterCIDR(nodeName string, podCIDRs []*net.IPNet, cidrMap map[string]*clusterCIDREntry) *cidrset.ClusterCIDR {
+	for _, entry := range cidrMap {
+		if entry.clusterCIDR.AssociatedNodes[nodeName] && canOccupy(entry.clusterCIDR, podCIDRs) {
+			return entry.clusterCIDR
+		}
+	}
+	return nil
+}
+
+// canOccupy returns whether the ClusterCIDR has a CIDRSet for the IP family of
+// every CIDR, and every CIDR overlaps the range of that CIDRSet, the condition
+// under which MultiCIDRSet.Occupy accepts it.
+func canOccupy(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
+	for _, cidr := range cidrs {
+		cidrSet, err := associatedCIDRSet(clusterCIDR, cidr)
+		if err != nil || cidrSet == nil {
+			return false
+		}
+		// CIDRs either nest or are disjoint, so they overlap if one contains the
+		// other's first address.
+		if !cidrSet.ClusterCIDR.Contains(cidr.IP) && !cidr.Contains(cidrSet.ClusterCIDR.IP) {
+			return false
+		}
+	}
+	return true
+}
+
+// holdsWhole returns whether, for every CIDR, the ClusterCIDR has a CIDRSet of
+// its IP family whose range contains the CIDR and whose per-node blocks are no
+// larger than it. MultiCIDRSet.Occupy accepts any CIDR that overlaps the range,
+// and reserves the wrong amount for the others.
+func holdsWhole(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
+	for _, cidr := range cidrs {
+		cidrSet, err := associatedCIDRSet(clusterCIDR, cidr)
+		if err != nil || cidrSet == nil {
+			return false
+		}
+		maskSize, _ := cidr.Mask.Size()
+		rangeMaskSize, _ := cidrSet.ClusterCIDR.Mask.Size()
+		// A range smaller than the CIDR, e.g. 10.0.0.0/25 for 10.0.0.0/24: only
+		// the range is reserved, and the rest of the CIDR can go to another node.
+		if rangeMaskSize > maskSize || !cidrSet.ClusterCIDR.Contains(cidr.IP) {
+			return false
+		}
+		// A per-node block larger than the CIDR, e.g. 10.0.0.0/23 for
+		// 10.0.0.0/24: the block is shared with the other CIDRs in it, e.g.
+		// 10.0.1.0/24, and releasing either frees it while the other is in use.
+		if cidrSet.NodeMaskSize < maskSize {
 			return false
 		}
 	}
@@ -591,7 +735,8 @@ func hasCIDRSetsFor(clusterCIDR *cidrset.ClusterCIDR, cidrs []*net.IPNet) bool {
 }
 
 // associatedCIDRSet returns the CIDRSet, based on the ip family of the CIDR.
-func (r *multiCIDRRangeAllocator) associatedCIDRSet(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) (*cidrset.MultiCIDRSet, error) {
+// The CIDRSet is nil if the ClusterCIDR has none for that family.
+func associatedCIDRSet(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) (*cidrset.MultiCIDRSet, error) {
 	switch {
 	case netutil.IsIPv4CIDR(cidr):
 		return clusterCIDR.IPv4CIDRSet, nil
@@ -604,7 +749,7 @@ func (r *multiCIDRRangeAllocator) associatedCIDRSet(clusterCIDR *cidrset.Cluster
 
 // Occupy marks the CIDR as occupied in the allocatedCIDRMap of the cidrSet.
 func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) error {
-	currCIDRSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+	currCIDRSet, err := associatedCIDRSet(clusterCIDR, cidr)
 	if err != nil {
 		return err
 	}
@@ -622,7 +767,7 @@ func (r *multiCIDRRangeAllocator) Occupy(clusterCIDR *cidrset.ClusterCIDR, cidr 
 // Release marks the CIDR as free in the cidrSet used bitmap,
 // Also removes the CIDR from the allocatedCIDRSet.
 func (r *multiCIDRRangeAllocator) Release(logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidr *net.IPNet) error {
-	currCIDRSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
+	currCIDRSet, err := associatedCIDRSet(clusterCIDR, cidr)
 	if err != nil {
 		return err
 	}
@@ -692,7 +837,8 @@ func (r *multiCIDRRangeAllocator) AllocateOrOccupyCIDR(logger klog.Logger, node 
 	return r.updateCIDRsAllocation(logger, allocated)
 }
 
-// ReleaseCIDR marks node.podCIDRs[...] as unused in our tracked cidrSets.
+// ReleaseCIDR marks node.podCIDRs[...] as unused in every ClusterCIDR the node
+// is associated with.
 func (r *multiCIDRRangeAllocator) ReleaseCIDR(logger klog.Logger, node *corev1.Node) error {
 	r.lock.Lock()
 	defer r.lock.Unlock()
@@ -701,55 +847,70 @@ func (r *multiCIDRRangeAllocator) ReleaseCIDR(logger klog.Logger, node *corev1.N
 		return nil
 	}
 
-	clusterCIDR, err := r.allocatedClusterCIDR(node, r.cidrMap)
-	if err != nil {
-		return err
-	}
-
+	podCIDRs := make([]*net.IPNet, 0, len(node.Spec.PodCIDRs))
 	for _, cidr := range node.Spec.PodCIDRs {
 		_, podCIDR, err := netutil.ParseCIDRSloppy(cidr)
 		if err != nil {
 			return fmt.Errorf("failed to parse CIDR %q on Node %q: %w", cidr, node.Name, err)
 		}
+		podCIDRs = append(podCIDRs, podCIDR)
+	}
 
-		logger.Info("release CIDR for node", "CIDR", cidr, "node", klog.KObj(node))
-		if err := r.Release(logger, clusterCIDR, podCIDR); err != nil {
-			return fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node %q: %w", cidr, clusterCIDR.Name, node.Name, err)
+	// Look the ClusterCIDRs up by association, not by node selector and rank:
+	// the node labels, the ClusterCIDRs and their ranking may have changed
+	// since the node CIDRs were occupied, and a node synced after such a change
+	// may be associated with more than one ClusterCIDR.
+	var errs []error
+	associated := false
+	for _, entry := range r.cidrMap {
+		clusterCIDR := entry.clusterCIDR
+		if !clusterCIDR.AssociatedNodes[node.Name] {
+			continue
+		}
+		associated = true
+
+		for _, podCIDR := range podCIDRs {
+			logger.Info("release CIDR for node", "CIDR", podCIDR, "node", klog.KObj(node), "clusterCIDR", clusterCIDR.Name)
+			if err := r.Release(logger, clusterCIDR, podCIDR); err != nil {
+				errs = append(errs, fmt.Errorf("failed to release cidr %q from clusterCIDR %q for node %q: %w", podCIDR, clusterCIDR.Name, node.Name, err))
+			}
+		}
+
+		// Remove the association even if a release failed, so that the
+		// ClusterCIDR can be deleted.
+		delete(clusterCIDR.AssociatedNodes, node.Name)
+
+		// A terminating ClusterCIDR is deleted once its last node is released. Sync
+		// it now, rather than on its next retry, which backs off up to 1000s.
+		if clusterCIDR.Terminating && len(clusterCIDR.AssociatedNodes) == 0 {
+			r.cidrQueue.Add(clusterCIDR.Name)
 		}
 	}
 
-	// Remove the node from the ClusterCIDR AssociatedNodes.
-	delete(clusterCIDR.AssociatedNodes, node.Name)
-
-	// A terminating ClusterCIDR is deleted once its last node is released. Sync
-	// it now, rather than on its next retry, which backs off up to 1000s.
-	if clusterCIDR.Terminating && len(clusterCIDR.AssociatedNodes) == 0 {
-		r.cidrQueue.Add(clusterCIDR.Name)
+	if !associated {
+		return fmt.Errorf("no clusterCIDR found associated with node: %s", node.Name)
 	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // Marks all CIDRs with subNetMaskSize that belongs to serviceCIDR as used across all cidrs
 // so that they won't be assignable.
 // filterOutServiceRange requires the caller to hold r.lock.
-func (r *multiCIDRRangeAllocator) filterOutServiceRange(logger klog.Logger, serviceCIDR *net.IPNet, cidrMap map[string][]*cidrset.ClusterCIDR) {
+func (r *multiCIDRRangeAllocator) filterOutServiceRange(logger klog.Logger, serviceCIDR *net.IPNet, cidrMap map[string]*clusterCIDREntry) {
 	// Checks if service CIDR has a nonempty intersection with cluster
 	// CIDR. It is the case if either clusterCIDR contains serviceCIDR with
 	// clusterCIDR's Mask applied (this means that clusterCIDR contains
 	// serviceCIDR) or vice versa (which means that serviceCIDR contains
 	// clusterCIDR).
-	for _, clusterCIDRList := range cidrMap {
-		for _, clusterCIDR := range clusterCIDRList {
-			if err := r.occupyServiceCIDR(clusterCIDR, serviceCIDR); err != nil {
-				logger.Error(err, "Unable to occupy service CIDR")
-			}
+	for _, entry := range cidrMap {
+		if err := r.occupyServiceCIDR(entry.clusterCIDR, serviceCIDR); err != nil {
+			logger.Error(err, "Unable to occupy service CIDR")
 		}
 	}
 }
 
 func (r *multiCIDRRangeAllocator) occupyServiceCIDR(clusterCIDR *cidrset.ClusterCIDR, serviceCIDR *net.IPNet) error {
-	cidrSet, err := r.associatedCIDRSet(clusterCIDR, serviceCIDR)
+	cidrSet, err := associatedCIDRSet(clusterCIDR, serviceCIDR)
 	if err != nil {
 		return err
 	}
@@ -839,36 +1000,14 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 	return err
 }
 
-// defaultNodeSelector generates a label with defaultClusterCIDRKey as the key and
-// defaultClusterCIDRValue as the value, it is an internal nodeSelector matching all
-// nodes. Only used if no ClusterCIDR selects the node.
-func defaultNodeSelector() *corev1.NodeSelector {
-	return &corev1.NodeSelector{
-		NodeSelectorTerms: []corev1.NodeSelectorTerm{
-			{
-				MatchExpressions: []corev1.NodeSelectorRequirement{
-					{
-						Key:      defaultClusterCIDRKey,
-						Operator: corev1.NodeSelectorOpIn,
-						Values:   []string{defaultClusterCIDRValue},
-					},
-				},
-			},
-		},
-	}
-}
-
 // prioritizedCIDRs requires the caller to hold r.lock.
 // prioritizedCIDRs returns a list of CIDRs to be allocated to the node.
 // Returns 1 CIDR  if single stack.
 // Returns 2 CIDRs , 1 from each ip family if dual stack.
 func (r *multiCIDRRangeAllocator) prioritizedCIDRs(
-	logger klog.Logger, node *corev1.Node, cidrMap map[string][]*cidrset.ClusterCIDR,
+	logger klog.Logger, node *corev1.Node, cidrMap map[string]*clusterCIDREntry,
 ) ([]*net.IPNet, *cidrset.ClusterCIDR, error) {
-	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, true, cidrMap)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to get a clusterCIDR for node %s: %w", node.Name, err)
-	}
+	clusterCIDRList := r.orderedMatchingClusterCIDRs(node, true, cidrMap)
 
 	for _, clusterCIDR := range clusterCIDRList {
 		cidrs := make([]*net.IPNet, 0)
@@ -897,7 +1036,7 @@ func (r *multiCIDRRangeAllocator) prioritizedCIDRs(
 
 // allocateCIDR requires the caller to hold r.lock.
 func (r *multiCIDRRangeAllocator) allocateCIDR(
-	logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet, cidrMap map[string][]*cidrset.ClusterCIDR,
+	logger klog.Logger, clusterCIDR *cidrset.ClusterCIDR, cidrSet *cidrset.MultiCIDRSet, cidrMap map[string]*clusterCIDREntry,
 ) (*net.IPNet, error) {
 	for evaluated := 0; evaluated < cidrSet.MaxCIDRs; evaluated++ {
 		candidate, lastEvaluated, err := cidrSet.NextCandidate()
@@ -930,18 +1069,16 @@ func (r *multiCIDRRangeAllocator) allocateCIDR(
 }
 
 // cidrInAllocatedList requires the caller to hold r.lock.
-func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string][]*cidrset.ClusterCIDR) bool {
-	for _, clusterCIDRList := range cidrMap {
-		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
-			if err != nil {
-				logger.Error(err, "failed to associate CIDR set")
-				continue
-			}
+func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string]*clusterCIDREntry) bool {
+	for _, entry := range cidrMap {
+		cidrSet, err := associatedCIDRSet(entry.clusterCIDR, cidr)
+		if err != nil {
+			logger.Error(err, "failed to associate CIDR set")
+			continue
+		}
 
-			if cidrSet != nil && cidrSet.CIDRAllocated(cidr) {
-				return true
-			}
+		if cidrSet != nil && cidrSet.CIDRAllocated(cidr) {
+			return true
 		}
 	}
 
@@ -949,126 +1086,87 @@ func (r *multiCIDRRangeAllocator) cidrInAllocatedList(logger klog.Logger, cidr *
 }
 
 // cidrOverlapWithAllocatedList requires the caller to hold r.lock.
-func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string][]*cidrset.ClusterCIDR) bool {
-	for _, clusterCIDRList := range cidrMap {
-		for _, clusterCIDR := range clusterCIDRList {
-			cidrSet, err := r.associatedCIDRSet(clusterCIDR, cidr)
-			if err != nil {
-				logger.Error(err, "failed to associate CIDR set")
-				continue
-			}
+func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logger, cidr *net.IPNet, cidrMap map[string]*clusterCIDREntry) bool {
+	for _, entry := range cidrMap {
+		cidrSet, err := associatedCIDRSet(entry.clusterCIDR, cidr)
+		if err != nil {
+			logger.Error(err, "failed to associate CIDR set")
+			continue
+		}
 
-			if cidrSet != nil && cidrSet.CIDROverlaps(cidr) {
-				return true
-			}
+		if cidrSet != nil && cidrSet.CIDROverlaps(cidr) {
+			return true
 		}
 	}
 
 	return false
 }
 
-// allocatedClusterCIDR requires the caller to hold r.lock.
-// allocatedClusterCIDR returns the ClusterCIDR from which the node CIDRs were allocated.
-func (r *multiCIDRRangeAllocator) allocatedClusterCIDR(node *corev1.Node, cidrMap map[string][]*cidrset.ClusterCIDR) (*cidrset.ClusterCIDR, error) {
-	clusterCIDRList, err := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get a clusterCIDR for node %s: %w", node.Name, err)
+// nonMatchingClusterCIDRs returns the ClusterCIDRs whose node selector doesn't
+// select the node, terminating ones included, in priority order. Together with
+// orderedMatchingClusterCIDRs(node, false, cidrMap), it lists every ClusterCIDR.
+func nonMatchingClusterCIDRs(node *corev1.Node, cidrMap map[string]*clusterCIDREntry) []*cidrset.ClusterCIDR {
+	pq := make(PriorityQueue, 0)
+	for _, entry := range cidrMap {
+		// A ClusterCIDR without a node selector applies to every node.
+		if entry.selector == nil {
+			continue
+		}
+		if matches, _ := entry.selector.match(node); matches {
+			continue
+		}
+		heap.Push(&pq, &PriorityQueueItem{clusterCIDR: entry.clusterCIDR})
 	}
 
-	for _, clusterCIDR := range clusterCIDRList {
-		if ok := clusterCIDR.AssociatedNodes[node.Name]; ok {
-			return clusterCIDR, nil
-		}
+	clusterCIDRs := make([]*cidrset.ClusterCIDR, 0, pq.Len())
+	for pq.Len() > 0 {
+		clusterCIDRs = append(clusterCIDRs, heap.Pop(&pq).(*PriorityQueueItem).clusterCIDR)
 	}
-	return nil, fmt.Errorf("no clusterCIDR found associated with node: %s", node.Name)
+	return clusterCIDRs
 }
 
 // orderedMatchingClusterCIDRs requires the caller to hold r.lock.
-// orderedMatchingClusterCIDRs returns a list of all the ClusterCIDRs matching the node labels.
-// The list is ordered with the following priority, which act as tie-breakers.
-// P0: ClusterCIDR with higher number of matching labels has the highest priority.
+// orderedMatchingClusterCIDRs returns a list of all the ClusterCIDRs whose node
+// selector matches the node, followed by the catch all ClusterCIDRs, the ones
+// without a node selector.
+// Both parts of the list are ordered with the following priority, which act as
+// tie-breakers.
+// P0: ClusterCIDR with higher number of matching requirements has the highest priority.
 // P1: ClusterCIDR having cidrSet with fewer allocatable Pod CIDRs has higher priority.
 // P2: ClusterCIDR with a PerNodeMaskSize having fewer IPs has higher priority.
-// P3: ClusterCIDR having label with lower alphanumeric value has higher priority.
-// P4: ClusterCIDR with a cidrSet having a smaller IP address value has a higher priority.
+// P3: ClusterCIDR with a cidrSet having a smaller IP address value has a higher priority.
+// P4: ClusterCIDR with the lower alphanumeric name has a higher priority.
 //
-// orderedMatchingClusterCIDRs takes `occupy` as an argument, it determines whether the function
-// is called during an occupy or a release operation. For a release operation, a ClusterCIDR must
-// be added to the matching ClusterCIDRs list, irrespective of whether the ClusterCIDR is terminating.
-func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, occupy bool, cidrMap map[string][]*cidrset.ClusterCIDR) ([]*cidrset.ClusterCIDR, error) {
-	matchingCIDRs := make([]*cidrset.ClusterCIDR, 0)
-	pq := make(PriorityQueue, 0)
+// forAllocation leaves out terminating ClusterCIDRs, so that they hand out no new
+// CIDRs. Occupying CIDRs a node already has includes terminating ClusterCIDRs.
+func (r *multiCIDRRangeAllocator) orderedMatchingClusterCIDRs(node *corev1.Node, forAllocation bool, cidrMap map[string]*clusterCIDREntry) []*cidrset.ClusterCIDR {
+	selected := make(PriorityQueue, 0)
+	catchAll := make(PriorityQueue, 0)
 
-	for label, clusterCIDRList := range cidrMap {
-		labelsMatch, matchCnt, err := r.matchCIDRLabels(node, label)
-		if err != nil {
-			return nil, err
-		}
-
-		if !labelsMatch {
+	for _, entry := range cidrMap {
+		if forAllocation && entry.clusterCIDR.Terminating {
 			continue
 		}
 
-		for _, clusterCIDR := range clusterCIDRList {
-			pqItem := &PriorityQueueItem{
-				clusterCIDR:     clusterCIDR,
-				labelMatchCount: matchCnt,
-				selectorString:  label,
-			}
+		if entry.selector == nil {
+			heap.Push(&catchAll, &PriorityQueueItem{clusterCIDR: entry.clusterCIDR})
+			continue
+		}
 
-			// Only push the CIDRsets which are not marked for termination.
-			// Always push the CIDRsets when marked for release.
-			if !occupy || !clusterCIDR.Terminating {
-				heap.Push(&pq, pqItem)
-			}
+		if selectorMatches, matchCnt := entry.selector.match(node); selectorMatches {
+			heap.Push(&selected, &PriorityQueueItem{clusterCIDR: entry.clusterCIDR, matchCount: matchCnt})
 		}
 	}
 
-	// Remove the ClusterCIDRs from the PriorityQueue.
-	// They arrive in descending order of matchCnt,
-	// if matchCnt is equal it is ordered in ascending order of labels.
-	for pq.Len() > 0 {
-		pqItem := heap.Pop(&pq).(*PriorityQueueItem)
-		matchingCIDRs = append(matchingCIDRs, pqItem.clusterCIDR)
-	}
-
-	// Append the catch all CIDR config.
-	defaultSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
-	if err != nil {
-		return nil, err
-	}
-	if clusterCIDRList, ok := cidrMap[defaultSelector.String()]; ok {
-		matchingCIDRs = append(matchingCIDRs, clusterCIDRList...)
-	}
-	return matchingCIDRs, nil
-}
-
-// matchCIDRLabels Matches the Node labels to CIDR Configs.
-// Returns true only if all the labels match, also returns the count of matching labels.
-func (r *multiCIDRRangeAllocator) matchCIDRLabels(node *corev1.Node, label string) (bool, int, error) {
-	var labelSet labels.Set
-	var matchCnt int
-	labelsMatch := false
-
-	ls, err := labels.Parse(label)
-	if err != nil {
-		return labelsMatch, 0, fmt.Errorf("unable to parse label to labels.Selector (label=%s): %w", label, err)
-	}
-	reqs, selectable := ls.Requirements()
-
-	labelSet = node.Labels
-	if selectable {
-		matchCnt = 0
-		for _, req := range reqs {
-			if req.Matches(labelSet) {
-				matchCnt += 1
-			}
-		}
-		if matchCnt == len(reqs) {
-			labelsMatch = true
+	// Remove the ClusterCIDRs from the PriorityQueues, they arrive in priority order.
+	matchingCIDRs := make([]*cidrset.ClusterCIDR, 0, selected.Len()+catchAll.Len())
+	for _, pq := range []*PriorityQueue{&selected, &catchAll} {
+		for pq.Len() > 0 {
+			pqItem := heap.Pop(pq).(*PriorityQueueItem)
+			matchingCIDRs = append(matchingCIDRs, pqItem.clusterCIDR)
 		}
 	}
-	return labelsMatch, matchCnt, nil
+	return matchingCIDRs
 }
 
 // Methods for handling ClusterCIDRs.
@@ -1164,12 +1262,26 @@ func (r *multiCIDRRangeAllocator) reconcileBootstrap(ctx context.Context, cluste
 	defer r.lock.Unlock()
 
 	logger := klog.FromContext(ctx)
-	terminating := false
-	// Create the ClusterCIDR only if the Spec has not been modified.
-	if clusterCIDR.Generation > 1 {
+	// A terminating ClusterCIDR hands out no new CIDRs. Node workers start
+	// together with the ClusterCIDR workers, so a ClusterCIDR being deleted must
+	// be terminating before reconcileDelete runs for it.
+	var terminating bool
+	switch {
+	case !clusterCIDR.DeletionTimestamp.IsZero():
+		// The API server also bumps the generation when it sets the deletion
+		// timestamp, so check the deletion first.
+		terminating = true
+		logger.Info("CIDRs from ClusterCIDR will not be used for allocation as it is being deleted", "clusterCIDR", klog.KObj(clusterCIDR))
+	case clusterCIDR.Generation > 1:
+		// The spec changed after creation: adding or removing an optional field
+		// passes the per-field immutability rules. Spec updates are not applied
+		// at runtime, so the CIDRs nodes hold may not match the current spec;
+		// hand out no new CIDRs from it.
 		terminating = true
 		err := fmt.Errorf("CIDRs from ClusterCIDR %s will not be used for allocation as it was modified", clusterCIDR.Name)
 		logger.Error(err, "ClusterCIDR Modified")
+	default:
+		terminating = false
 	}
 
 	logger.V(2).Info("Creating ClusterCIDR during bootstrap", "clusterCIDR", clusterCIDR.Name)
@@ -1183,10 +1295,22 @@ func (r *multiCIDRRangeAllocator) reconcileBootstrap(ctx context.Context, cluste
 
 // createClusterCIDR requires the caller to hold r.lock.
 // createClusterCIDR creates and maps the cidrSets in the cidrMap.
-func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, clusterCIDR *v1.ClusterCIDR, terminating bool, cidrMap map[string][]*cidrset.ClusterCIDR) error {
-	nodeSelector, err := r.nodeSelectorKey(clusterCIDR)
+func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, clusterCIDR *v1.ClusterCIDR, terminating bool, cidrMap map[string]*clusterCIDREntry) error {
+	logger := klog.FromContext(ctx)
+	selector, err := r.clusterCIDRNodeSelector(clusterCIDR)
 	if err != nil {
-		return fmt.Errorf("unable to get labelSelector key: %w", err)
+		// The node selector is immutable, so retrying can't help, and a node
+		// selector accepted before node selectors followed the core v1 semantics
+		// can be rejected now while nodes use the ClusterCIDR's CIDRs. Map the
+		// ClusterCIDR with a node selector that selects no node: it hands out no
+		// new CIDRs, the CIDRs its nodes have are still occupied in it, and it
+		// is not deleted while nodes use them.
+		if _, mapped := cidrMap[clusterCIDR.Name]; !mapped {
+			logger.Error(err, "Invalid node selector, the ClusterCIDR selects no node", "clusterCIDR", klog.KObj(clusterCIDR))
+			r.recordEvent(clusterCIDR, corev1.EventTypeWarning, "InvalidNodeSelector",
+				"Invalid node selector, the ClusterCIDR selects no node: %v", err)
+		}
+		selector = &nodeSelector{}
 	}
 
 	clusterCIDRSet, err := r.createClusterCIDRSet(clusterCIDR, terminating)
@@ -1198,7 +1322,7 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 		return errors.New("invalid ClusterCIDR: must provide IPv4 and/or IPv6 config")
 	}
 
-	if err := r.mapClusterCIDRSet(cidrMap, nodeSelector, clusterCIDRSet); err != nil {
+	if err := r.mapClusterCIDRSet(cidrMap, selector, clusterCIDRSet); err != nil {
 		return fmt.Errorf("unable to map clusterCIDRSet: %w", err)
 	}
 
@@ -1208,7 +1332,6 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 		updatedClusterCIDR.Finalizers = append(updatedClusterCIDR.Finalizers, clusterCIDRFinalizer)
 	}
 
-	logger := klog.FromContext(ctx)
 	if updatedClusterCIDR.ResourceVersion == "" {
 		// Create is only used for creating default ClusterCIDR.
 		if _, err := r.networkClient.Create(ctx, updatedClusterCIDR, metav1.CreateOptions{}); err != nil {
@@ -1263,22 +1386,15 @@ func (r *multiCIDRRangeAllocator) createClusterCIDRSet(clusterCIDR *v1.ClusterCI
 	return clusterCIDRSet, nil
 }
 
-// mapClusterCIDRSet maps the ClusterCIDRSet to the provided labelSelector in the cidrMap.
-func (r *multiCIDRRangeAllocator) mapClusterCIDRSet(cidrMap map[string][]*cidrset.ClusterCIDR, nodeSelector string, clusterCIDRSet *cidrset.ClusterCIDR) error {
+// mapClusterCIDRSet maps the ClusterCIDRSet and its node selector in the cidrMap,
+// unless a ClusterCIDR with the same name is mapped already.
+func (r *multiCIDRRangeAllocator) mapClusterCIDRSet(cidrMap map[string]*clusterCIDREntry, selector *nodeSelector, clusterCIDRSet *cidrset.ClusterCIDR) error {
 	if clusterCIDRSet == nil {
 		return errors.New("invalid clusterCIDRSet, clusterCIDRSet cannot be nil")
 	}
 
-	if clusterCIDRSetList, ok := cidrMap[nodeSelector]; ok {
-		containsClusterCIDRSet := slices.ContainsFunc(clusterCIDRSetList, func(c *cidrset.ClusterCIDR) bool {
-			return clusterCIDRSet.Name == c.Name
-		})
-
-		if !containsClusterCIDRSet {
-			cidrMap[nodeSelector] = append(clusterCIDRSetList, clusterCIDRSet)
-		}
-	} else {
-		cidrMap[nodeSelector] = []*cidrset.ClusterCIDR{clusterCIDRSet}
+	if _, ok := cidrMap[clusterCIDRSet.Name]; !ok {
+		cidrMap[clusterCIDRSet.Name] = &clusterCIDREntry{clusterCIDR: clusterCIDRSet, selector: selector}
 	}
 	return nil
 }
@@ -1313,61 +1429,33 @@ func (r *multiCIDRRangeAllocator) reconcileDelete(ctx context.Context, clusterCI
 
 // deleteClusterCIDR requires the caller to hold r.lock.
 // deleteClusterCIDR Deletes and unmaps the ClusterCIDRs from the cidrMap.
-func (r *multiCIDRRangeAllocator) deleteClusterCIDR(logger klog.Logger, clusterCIDR *v1.ClusterCIDR, cidrMap map[string][]*cidrset.ClusterCIDR) error {
-	labelSelector, err := r.nodeSelectorKey(clusterCIDR)
-	if err != nil {
-		return fmt.Errorf("unable to delete cidr: %w", err)
-	}
-
-	clusterCIDRSetList, ok := cidrMap[labelSelector]
+func (r *multiCIDRRangeAllocator) deleteClusterCIDR(logger klog.Logger, clusterCIDR *v1.ClusterCIDR, cidrMap map[string]*clusterCIDREntry) error {
+	entry, ok := cidrMap[clusterCIDR.Name]
 	if !ok {
-		logger.Info("Label not found in CIDRMap, proceeding with delete", "labelSelector", labelSelector)
+		logger.V(2).Info("clusterCIDR not found, proceeding with delete", "clusterCIDR", clusterCIDR.Name)
 		return nil
 	}
 
-	for i, clusterCIDRSet := range clusterCIDRSetList {
-		if clusterCIDRSet.Name != clusterCIDR.Name {
-			continue
-		}
+	// Mark clusterCIDRSet as terminating.
+	entry.clusterCIDR.Terminating = true
 
-		// Mark clusterCIDRSet as terminating.
-		clusterCIDRSet.Terminating = true
-
-		// Allow deletion only if no nodes are associated with the ClusterCIDR.
-		if len(clusterCIDRSet.AssociatedNodes) > 0 {
-			return fmt.Errorf("ClusterCIDRSet %s marked as terminating, won't be deleted until all associated nodes are deleted", clusterCIDR.Name)
-		}
-
-		// Remove the label from the map if this was the only clusterCIDR associated
-		// with it.
-		if len(clusterCIDRSetList) == 1 {
-			delete(cidrMap, labelSelector)
-			return nil
-		}
-
-		clusterCIDRSetList = append(clusterCIDRSetList[:i], clusterCIDRSetList[i+1:]...)
-		cidrMap[labelSelector] = clusterCIDRSetList
-		return nil
+	// Allow deletion only if no nodes are associated with the ClusterCIDR.
+	if len(entry.clusterCIDR.AssociatedNodes) > 0 {
+		return fmt.Errorf("ClusterCIDRSet %s marked as terminating, won't be deleted until all associated nodes are deleted", clusterCIDR.Name)
 	}
-	logger.V(2).Info("clusterCIDR not found, proceeding with delete", "clusterCIDR", clusterCIDR.Name, "label", labelSelector)
+
+	delete(cidrMap, clusterCIDR.Name)
 	return nil
 }
 
-func (r *multiCIDRRangeAllocator) nodeSelectorKey(clusterCIDR *v1.ClusterCIDR) (string, error) {
-	var nodeSelector labels.Selector
-	var err error
-
-	if clusterCIDR.Spec.NodeSelector != nil {
-		nodeSelector, err = nodeSelectorAsSelector(clusterCIDR.Spec.NodeSelector)
-	} else {
-		nodeSelector, err = nodeSelectorAsSelector(defaultNodeSelector())
+// clusterCIDRNodeSelector returns the parsed node selector of the ClusterCIDR,
+// or nil if the ClusterCIDR has no node selector, which makes it a catch all
+// config.
+func (r *multiCIDRRangeAllocator) clusterCIDRNodeSelector(clusterCIDR *v1.ClusterCIDR) (*nodeSelector, error) {
+	if clusterCIDR.Spec.NodeSelector == nil {
+		return nil, nil
 	}
-
-	if err != nil {
-		return "", err
-	}
-
-	return nodeSelector.String(), nil
+	return parseNodeSelector(clusterCIDR.Spec.NodeSelector)
 }
 
 func listClusterCIDRs(ctx context.Context, networkClient clustercidrclient.ClusterCIDRInterface) (*v1.ClusterCIDRList, error) {
@@ -1401,68 +1489,6 @@ func listClusterCIDRs(ctx context.Context, networkClient clustercidrclient.Clust
 			apiserverStartupGracePeriod)
 	}
 	return clusterCIDRList, nil
-}
-
-// nodeSelectorRequirementsAsLabelRequirements converts the NodeSelectorRequirement
-// type to a labels.Requirement type.
-func nodeSelectorRequirementsAsLabelRequirements(nsr corev1.NodeSelectorRequirement) (*labels.Requirement, error) {
-	var op selection.Operator
-	switch nsr.Operator {
-	case corev1.NodeSelectorOpIn:
-		op = selection.In
-	case corev1.NodeSelectorOpNotIn:
-		op = selection.NotIn
-	case corev1.NodeSelectorOpExists:
-		op = selection.Exists
-	case corev1.NodeSelectorOpDoesNotExist:
-		op = selection.DoesNotExist
-	case corev1.NodeSelectorOpGt:
-		op = selection.GreaterThan
-	case corev1.NodeSelectorOpLt:
-		op = selection.LessThan
-	default:
-		return nil, fmt.Errorf("%q is not a valid node selector operator", nsr.Operator)
-	}
-	return labels.NewRequirement(nsr.Key, op, nsr.Values)
-}
-
-// TODO: nodeSelect and labelSelector semantics are different and the function
-// doesn't translate them correctly, this has to be fixed before Beta
-// xref: https://issues.k8s.io/116419
-// nodeSelectorAsSelector converts the NodeSelector api type into a struct that
-// implements labels.Selector
-// Note: This function should be kept in sync with the selector methods in
-// pkg/labels/selector.go.
-func nodeSelectorAsSelector(ns *corev1.NodeSelector) (labels.Selector, error) {
-	if ns == nil {
-		return labels.Nothing(), nil
-	}
-	if len(ns.NodeSelectorTerms) == 0 {
-		return labels.Everything(), nil
-	}
-	var requirements []labels.Requirement
-
-	for _, nsTerm := range ns.NodeSelectorTerms {
-		for _, expr := range nsTerm.MatchExpressions {
-			req, err := nodeSelectorRequirementsAsLabelRequirements(expr)
-			if err != nil {
-				return nil, err
-			}
-			requirements = append(requirements, *req)
-		}
-
-		for _, field := range nsTerm.MatchFields {
-			req, err := nodeSelectorRequirementsAsLabelRequirements(field)
-			if err != nil {
-				return nil, err
-			}
-			requirements = append(requirements, *req)
-		}
-	}
-
-	selector := labels.NewSelector()
-	selector = selector.Add(requirements...)
-	return selector, nil
 }
 
 // ipnetToStringList converts a slice of net.IPNet into a list of CIDR in string format.

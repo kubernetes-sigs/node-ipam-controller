@@ -35,3 +35,6 @@ hack/test/kind/node-ipam-controller-local-test-env.yaml
 
 # Build output
 _output/
+
+# e2e test reports and logs
+_artifacts/
