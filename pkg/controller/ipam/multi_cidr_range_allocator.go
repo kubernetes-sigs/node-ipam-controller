@@ -568,17 +568,26 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 		return nil
 	}
 
-	// Include terminating ClusterCIDRs: the node already uses these CIDRs, and
-	// the ClusterCIDR holding them must keep the node associated, so that it is
-	// not deleted while the node exists.
+	// The candidates are first the ClusterCIDRs that apply to the node, then the
+	// others. Include terminating ClusterCIDRs: the node already uses these
+	// CIDRs, and the ClusterCIDR holding them must keep the node associated, so
+	// that it is not deleted while the node exists.
+	//
+	// Node selectors decide where new CIDRs come from, not where existing ones
+	// are. CIDRs allocated before the node labels changed, or before an upgrade
+	// changed which nodes a node selector selects, can be in a ClusterCIDR that
+	// doesn't select the node anymore. Left untracked, that ClusterCIDR could
+	// hand them to another node, and be deleted while the node uses them.
 	candidates := r.orderedMatchingClusterCIDRs(node, false, cidrMap)
+	selecting := len(candidates)
+	candidates = append(candidates, nonMatchingClusterCIDRs(node, cidrMap)...)
 
 	// Occupy the CIDRs in the first candidate that holds them whole. If none
 	// does, e.g. for CIDRs from another IPAM controller, occupy them in the first
 	// candidate that can: reserving them in part still keeps that part from
 	// other nodes.
 	for _, whole := range []bool{true, false} {
-		for _, clusterCIDR := range candidates {
+		for i, clusterCIDR := range candidates {
 			if whole && !holdsWhole(clusterCIDR, podCIDRs) {
 				continue
 			}
@@ -586,6 +595,13 @@ func (r *multiCIDRRangeAllocator) occupyCIDRs(logger klog.Logger, node *corev1.N
 				continue
 			}
 
+			if i >= selecting {
+				logger.Info("Node Pod CIDRs are in a ClusterCIDR that doesn't select the node, keeping them there",
+					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
+				r.recordEvent(node, corev1.EventTypeWarning, "ClusterCIDRNotSelectingNode",
+					"Pod CIDRs %v are in ClusterCIDR %s, whose node selector doesn't select the node",
+					node.Spec.PodCIDRs, clusterCIDR.Name)
+			}
 			if !whole {
 				logger.Info("No ClusterCIDR holds the node Pod CIDRs whole, keeping them in one that overlaps them",
 					"node", klog.KObj(node), "podCIDRs", node.Spec.PodCIDRs, "clusterCIDR", clusterCIDR.Name)
@@ -1086,6 +1102,29 @@ func (r *multiCIDRRangeAllocator) cidrOverlapWithAllocatedList(logger klog.Logge
 	return false
 }
 
+// nonMatchingClusterCIDRs returns the ClusterCIDRs whose node selector doesn't
+// select the node, terminating ones included, in priority order. Together with
+// orderedMatchingClusterCIDRs(node, false, cidrMap), it lists every ClusterCIDR.
+func nonMatchingClusterCIDRs(node *corev1.Node, cidrMap map[string]*clusterCIDREntry) []*cidrset.ClusterCIDR {
+	pq := make(PriorityQueue, 0)
+	for _, entry := range cidrMap {
+		// A catch all ClusterCIDR applies to every node.
+		if entry.selector == nil {
+			continue
+		}
+		if matches, _ := entry.selector.match(node); matches {
+			continue
+		}
+		heap.Push(&pq, &PriorityQueueItem{clusterCIDR: entry.clusterCIDR})
+	}
+
+	clusterCIDRs := make([]*cidrset.ClusterCIDR, 0, pq.Len())
+	for pq.Len() > 0 {
+		clusterCIDRs = append(clusterCIDRs, heap.Pop(&pq).(*PriorityQueueItem).clusterCIDR)
+	}
+	return clusterCIDRs
+}
+
 // orderedMatchingClusterCIDRs requires the caller to hold r.lock.
 // orderedMatchingClusterCIDRs returns a list of all the ClusterCIDRs whose node
 // selector matches the node, followed by the catch all ClusterCIDRs, the ones
@@ -1260,9 +1299,12 @@ func (r *multiCIDRRangeAllocator) createClusterCIDR(ctx context.Context, cluster
 	logger := klog.FromContext(ctx)
 	selector, err := r.clusterCIDRNodeSelector(clusterCIDR)
 	if err != nil {
-		// The node selector is immutable, so retrying can't help. Map the
-		// ClusterCIDR with a node selector that selects no node, so that it
-		// hands out no CIDRs, and report the node selector once.
+		// The node selector is immutable, so retrying can't help, and a node
+		// selector accepted before node selectors followed the core v1 semantics
+		// can be rejected now while nodes use the ClusterCIDR's CIDRs. Map the
+		// ClusterCIDR with a node selector that selects no node: it hands out no
+		// new CIDRs, the CIDRs its nodes have are still occupied in it, and it
+		// is not deleted while nodes use them.
 		if _, mapped := cidrMap[clusterCIDR.Name]; !mapped {
 			logger.Error(err, "Invalid node selector, the ClusterCIDR selects no node", "clusterCIDR", klog.KObj(clusterCIDR))
 			r.recordEvent(clusterCIDR, corev1.EventTypeWarning, "InvalidNodeSelector",
