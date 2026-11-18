@@ -27,6 +27,7 @@ import (
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
+	gomegatypes "github.com/onsi/gomega/types"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -302,6 +303,74 @@ var _ = ginkgo.Describe("Pod CIDRs", ginkgo.Ordered, func() {
 		gomega.Eventually(komega.Object(node2)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
 			return n.Spec.PodCIDRs
 		}, gomega.Equal(expectedPodCIDRs2)))
+	})
+
+	// createMappedClusterCIDR creates the ClusterCIDR and waits for the controller
+	// to use it, which it signals by adding its finalizer.
+	createMappedClusterCIDR := func(clusterCIDR *v1.ClusterCIDR) {
+		_, err := cidrClient.NetworkingV1().ClusterCIDRs().Create(ctx, clusterCIDR, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Eventually(komega.Object(clusterCIDR)).Should(gomega.WithTransform(func(obj client.Object) []string {
+			return obj.GetFinalizers()
+		}, gomega.ContainElement(clusterCIDRFinalizer)))
+	}
+
+	// expectPodCIDRs creates the node and waits for its Pod CIDRs to match.
+	expectPodCIDRs := func(node *corev1.Node, matcher gomegatypes.GomegaMatcher) {
+		_, err := kubeClient.CoreV1().Nodes().Create(ctx, node, metav1.CreateOptions{})
+		gomega.Expect(err).NotTo(gomega.HaveOccurred())
+		gomega.Eventually(komega.Object(node)).Should(gomega.WithTransform(func(n *corev1.Node) []string {
+			return n.Spec.PodCIDRs
+		}, matcher))
+	}
+
+	// The ClusterCIDRs of the following specs are tried before a catch all
+	// ClusterCIDR, so a node getting Pod CIDRs from the catch all one proves they
+	// do not select it. The specs create their own as the default one is deleted
+	// after the first spec.
+	ginkgo.It("should allocate Pod CIDRs from a ClusterCIDR selecting the node through ORed node selector terms", func() {
+		createMappedClusterCIDR(makeClusterCIDR("ored-terms-catch-all-cc", "10.100.0.0/16", "fd00:60:100::/112", 8, nil))
+		createMappedClusterCIDR(makeClusterCIDR("ored-terms-cc", "192.168.0.0/23", "fd00:30:100::/119", 8, &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"a"}}}},
+				{MatchExpressions: []corev1.NodeSelectorRequirement{{Key: "zone", Operator: corev1.NodeSelectorOpIn, Values: []string{"b"}}}},
+			},
+		}))
+
+		// The node matches the second term only.
+		expectPodCIDRs(makeNode("zone-b-node", map[string]string{"zone": "b"}),
+			gomega.Equal([]string{"192.168.0.0/24", "fd00:30:100::/120"}))
+
+		// A node matching no term gets its Pod CIDRs from the catch all ClusterCIDR.
+		expectPodCIDRs(makeNode("zone-c-node", map[string]string{"zone": "c"}),
+			gomega.Equal([]string{"10.100.0.0/24", "fd00:60:100::/120"}))
+	})
+
+	ginkgo.It("should allocate Pod CIDRs from a ClusterCIDR selecting the node by its name", func() {
+		createMappedClusterCIDR(makeClusterCIDR("by-name-catch-all-cc", "10.110.0.0/16", "fd00:70:100::/112", 8, nil))
+		createMappedClusterCIDR(makeClusterCIDR("by-name-cc", "172.20.0.0/23", "fd00:50:100::/119", 8, &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{
+				{MatchFields: []corev1.NodeSelectorRequirement{{Key: "metadata.name", Operator: corev1.NodeSelectorOpIn, Values: []string{"by-name-node"}}}},
+			},
+		}))
+
+		expectPodCIDRs(makeNode("by-name-node", nil),
+			gomega.Equal([]string{"172.20.0.0/24", "fd00:50:100::/120"}))
+
+		// A node with another name gets its Pod CIDRs from the catch all ClusterCIDR.
+		expectPodCIDRs(makeNode("other-name-node", nil),
+			gomega.Equal([]string{"10.110.0.0/24", "fd00:70:100::/120"}))
+	})
+
+	// The CRD requires nodeSelectorTerms, so an empty list is the only node
+	// selector without terms the API accepts.
+	ginkgo.It("should allocate Pod CIDRs from a ClusterCIDR whose node selector has no terms to any node", func() {
+		createMappedClusterCIDR(makeClusterCIDR("no-terms-cc", "10.120.0.0/16", "fd00:80:100::/112", 8, &corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{},
+		}))
+
+		expectPodCIDRs(makeNode("no-terms-node", map[string]string{"zone": "a"}),
+			gomega.Equal([]string{"10.120.0.0/24", "fd00:80:100::/120"}))
 	})
 
 	ginkgo.DescribeTable("Tie Break",

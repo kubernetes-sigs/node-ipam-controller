@@ -17,115 +17,88 @@ limitations under the License.
 package ipam
 
 import (
-	"errors"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/labels"
-	"k8s.io/apimachinery/pkg/selection"
+	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 )
 
-// nodeSelector is a parsed corev1.NodeSelector. The requirements of all its
-// terms, matchExpressions and matchFields alike, are ANDed into a single label
-// selector that is matched against the node labels.
+// nodeSelector is a parsed corev1.NodeSelector. It matches nodes with the
+// semantics documented on the API type: the node selector terms are ORed, the
+// matchExpressions and matchFields requirements within a single term are ANDed,
+// and an empty term matches no nodes. matchExpressions are matched against the
+// node labels, matchFields against the node fields.
+//
+// Every term is parsed into its own nodeaffinity.NodeSelector so that terms can
+// be matched individually, which the allocator needs to rank the ClusterCIDRs
+// matching a node.
 type nodeSelector struct {
-	selector labels.Selector
+	terms []nodeSelectorTerm
 }
 
-// parseNodeSelector parses ns into a nodeSelector.
+// nodeSelectorTerm is a single parsed corev1.NodeSelectorTerm.
+type nodeSelectorTerm struct {
+	matcher *nodeaffinity.NodeSelector
+	// size is the number of requirements in the term.
+	size int
+}
+
+// parseNodeSelector parses ns into a nodeSelector. Empty terms are dropped as
+// they match no nodes; a selector without terms therefore matches no nodes.
+// clusterCIDRNodeSelector doesn't parse a node selector without terms: the
+// ClusterCIDR API makes it select every node.
 func parseNodeSelector(ns *corev1.NodeSelector) (*nodeSelector, error) {
 	if ns == nil {
-		return nil, errors.New("node selector cannot be nil")
+		return nil, fmt.Errorf("node selector cannot be nil")
 	}
 
-	selector, err := nodeSelectorAsSelector(ns)
-	if err != nil {
+	// Parse the whole selector first, so that errors report the index of the
+	// invalid term in ns. Parsing the terms one by one below then cannot fail.
+	if _, err := nodeaffinity.NewNodeSelector(ns); err != nil {
 		return nil, err
 	}
-	return &nodeSelector{selector: selector}, nil
+
+	s := &nodeSelector{}
+	for i := range ns.NodeSelectorTerms {
+		term := ns.NodeSelectorTerms[i]
+		if len(term.MatchExpressions) == 0 && len(term.MatchFields) == 0 {
+			continue
+		}
+
+		// nodeaffinity.NewNodeSelector matches the terms it is given as a
+		// disjunction, so a selector holding a single term matches that term.
+		matcher, err := nodeaffinity.NewNodeSelector(&corev1.NodeSelector{
+			NodeSelectorTerms: []corev1.NodeSelectorTerm{term},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		s.terms = append(s.terms, nodeSelectorTerm{
+			matcher: matcher,
+			size:    len(term.MatchExpressions) + len(term.MatchFields),
+		})
+	}
+	return s, nil
 }
 
 // selectsNoNode returns a nodeSelector that selects no node.
 func selectsNoNode() *nodeSelector {
-	return &nodeSelector{selector: labels.Nothing()}
+	return &nodeSelector{}
 }
 
-// match reports whether the node labels match all the selector requirements,
-// and the number of requirements the node labels match. The allocator uses that
-// count to prefer the ClusterCIDR with the most specific match.
+// match reports whether the node matches any of the selector terms, and the
+// number of requirements of the largest term the node matches. The allocator
+// uses that count to prefer the ClusterCIDR with the most specific match.
 func (s *nodeSelector) match(node *corev1.Node) (bool, int) {
-	reqs, selectable := s.selector.Requirements()
-	if !selectable {
+	best := -1
+	for i := range s.terms {
+		if s.terms[i].size > best && s.terms[i].matcher.Match(node) {
+			best = s.terms[i].size
+		}
+	}
+	if best < 0 {
 		return false, 0
 	}
-
-	matchCnt := 0
-	for _, req := range reqs {
-		if req.Matches(labels.Set(node.Labels)) {
-			matchCnt++
-		}
-	}
-	return matchCnt == len(reqs), matchCnt
-}
-
-// nodeSelectorRequirementsAsLabelRequirements converts the NodeSelectorRequirement
-// type to a labels.Requirement type.
-func nodeSelectorRequirementsAsLabelRequirements(nsr corev1.NodeSelectorRequirement) (*labels.Requirement, error) {
-	var op selection.Operator
-	switch nsr.Operator {
-	case corev1.NodeSelectorOpIn:
-		op = selection.In
-	case corev1.NodeSelectorOpNotIn:
-		op = selection.NotIn
-	case corev1.NodeSelectorOpExists:
-		op = selection.Exists
-	case corev1.NodeSelectorOpDoesNotExist:
-		op = selection.DoesNotExist
-	case corev1.NodeSelectorOpGt:
-		op = selection.GreaterThan
-	case corev1.NodeSelectorOpLt:
-		op = selection.LessThan
-	default:
-		return nil, fmt.Errorf("%q is not a valid node selector operator", nsr.Operator)
-	}
-	return labels.NewRequirement(nsr.Key, op, nsr.Values)
-}
-
-// TODO: nodeSelect and labelSelector semantics are different and the function
-// doesn't translate them correctly, this has to be fixed before Beta
-// xref: https://issues.k8s.io/116419
-// nodeSelectorAsSelector converts the NodeSelector api type into a struct that
-// implements labels.Selector
-// Note: This function should be kept in sync with the selector methods in
-// pkg/labels/selector.go.
-func nodeSelectorAsSelector(ns *corev1.NodeSelector) (labels.Selector, error) {
-	if ns == nil {
-		return labels.Nothing(), nil
-	}
-	if len(ns.NodeSelectorTerms) == 0 {
-		return labels.Everything(), nil
-	}
-	var requirements []labels.Requirement
-
-	for _, nsTerm := range ns.NodeSelectorTerms {
-		for _, expr := range nsTerm.MatchExpressions {
-			req, err := nodeSelectorRequirementsAsLabelRequirements(expr)
-			if err != nil {
-				return nil, err
-			}
-			requirements = append(requirements, *req)
-		}
-
-		for _, field := range nsTerm.MatchFields {
-			req, err := nodeSelectorRequirementsAsLabelRequirements(field)
-			if err != nil {
-				return nil, err
-			}
-			requirements = append(requirements, *req)
-		}
-	}
-
-	selector := labels.NewSelector()
-	selector = selector.Add(requirements...)
-	return selector, nil
+	return true, best
 }

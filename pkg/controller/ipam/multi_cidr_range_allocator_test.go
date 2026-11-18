@@ -113,11 +113,18 @@ func parseTestNodeSelector(encoded string) *nodeSelector {
 		panic(err)
 	}
 
-	selector, err := parseNodeSelector(testNodeSelector)
+	selector, err := parseClusterCIDRNodeSelector(testNodeSelector)
 	if err != nil {
 		panic(err)
 	}
 	return selector
+}
+
+// parseClusterCIDRNodeSelector parses ns the way the allocator parses the node
+// selector of a ClusterCIDR.
+func parseClusterCIDRNodeSelector(ns *corev1.NodeSelector) (*nodeSelector, error) {
+	ra := &multiCIDRRangeAllocator{}
+	return ra.clusterCIDRNodeSelector(&v1.ClusterCIDR{Spec: v1.ClusterCIDRSpec{NodeSelector: ns}})
 }
 
 func getTestCidrMap(testClusterCIDRMap map[string][]*testClusterCIDR) map[string]*clusterCIDREntry {
@@ -1313,6 +1320,129 @@ func TestMultiCIDRAllocateOrOccupyCIDRSuccess(t *testing.T) {
 				0: "10.10.1.0/24",
 			},
 		},
+		{
+			description: "Dualstack CIDRs, node selected by the second of two ORed node selector terms",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					encodeTestNodeSelector(selectorWithTerms(
+						expressionsTerm(nodeSelectorRequirement("testLabel-0", corev1.NodeSelectorOpIn, "other-node")),
+						expressionsTerm(nodeSelectorRequirement("testLabel-0", corev1.NodeSelectorOpIn, "node0")),
+					)): {
+						{
+							name:            "ored-terms-cidr",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.20.0.0/16",
+							ipv6CIDR:        "ace:cab:deca::/112",
+						},
+					},
+				}),
+			expectedAllocatedCIDR: map[int]string{
+				0: "10.20.0.0/24",
+				1: "ace:cab:deca::/120",
+			},
+		},
+		{
+			description: "Single stack CIDR, node selected by its name through matchFields",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					encodeTestNodeSelector(selectorWithTerms(
+						fieldsTerm(nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpIn, "node0")),
+					)): {
+						{
+							name:            "by-name-cidr",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.30.0.0/16",
+						},
+					},
+				}),
+			expectedAllocatedCIDR: map[int]string{
+				0: "10.30.0.0/24",
+			},
+		},
+		{
+			description: "Single stack CIDR, node excluded by its name through matchFields gets a CIDR from the next matching clusterCIDR",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					// Has fewer allocatable CIDRs, so it would be preferred if it
+					// selected the node.
+					encodeTestNodeSelector(selectorWithTerms(
+						fieldsTerm(nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpNotIn, "node0")),
+					)): {
+						{
+							name:            "excluding-cidr",
+							perNodeHostBits: 4,
+							ipv4CIDR:        "10.40.0.0/24",
+						},
+					},
+					getTestNodeSelector([]testNodeSelectorRequirement{
+						{
+							key:      "testLabel-0",
+							operator: corev1.NodeSelectorOpIn,
+							values:   []string{"node0"},
+						},
+					}): {
+						{
+							name:            "fallback-cidr",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.50.0.0/16",
+						},
+					},
+				}),
+			expectedAllocatedCIDR: map[int]string{
+				0: "10.50.0.0/24",
+			},
+		},
 	}
 
 	logger, ctx := ktesting.NewTestContext(t)
@@ -1621,6 +1751,74 @@ func TestMultiCIDRAllocateOrOccupyCIDRFailure(t *testing.T) {
 			allocatedCIDRs:        nil,
 			expectedAllocatedCIDR: nil,
 		},
+		{
+			description: "fail, the only clusterCIDR has a node selector with an empty term, which selects no node",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					encodeTestNodeSelector(selectorWithTerms(corev1.NodeSelectorTerm{})): {
+						{
+							name:            "empty-term-cidr",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.60.0.0/16",
+						},
+					},
+				}),
+			expectedAllocatedCIDR: map[int]string{
+				0: "10.60.0.0/24",
+			},
+		},
+		{
+			description: "fail, the only clusterCIDR excludes the node by its name through matchFields",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					encodeTestNodeSelector(selectorWithTerms(
+						fieldsTerm(nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpNotIn, "node0")),
+					)): {
+						{
+							name:            "excluding-cidr",
+							perNodeHostBits: 8,
+							ipv4CIDR:        "10.70.0.0/16",
+						},
+					},
+				}),
+			expectedAllocatedCIDR: map[int]string{
+				0: "10.70.0.0/24",
+			},
+		},
 	}
 
 	logger, ctx := ktesting.NewTestContext(t)
@@ -1816,6 +2014,49 @@ func TestMultiCIDRReleaseCIDRSuccess(t *testing.T) {
 			},
 			expectedAllocatedCIDRSecondRound: map[int]string{
 				0: "127.123.234.0/30",
+			},
+		},
+		{
+			description: "Correctly release preallocated CIDR of a clusterCIDR selecting the node through ORed node selector terms",
+			fakeNodeHandler: &test.FakeNodeHandler{
+				Existing: []*corev1.Node{
+					{
+						ObjectMeta: metav1.ObjectMeta{
+							Name: "node0",
+							Labels: map[string]string{
+								"testLabel-0": "node0",
+							},
+						},
+					},
+				},
+				Clientset: fake.NewClientset(),
+			},
+			allocatorParams: CIDRAllocatorParams{
+				ServiceCIDR:          nil,
+				SecondaryServiceCIDR: nil,
+			},
+			testCIDRMap: getTestCidrMap(
+				map[string][]*testClusterCIDR{
+					encodeTestNodeSelector(selectorWithTerms(
+						expressionsTerm(nodeSelectorRequirement("testLabel-0", corev1.NodeSelectorOpIn, "other-node")),
+						expressionsTerm(nodeSelectorRequirement("testLabel-0", corev1.NodeSelectorOpIn, "node0")),
+					)): {
+						{
+							name:            "ored-terms-cidr-release",
+							perNodeHostBits: 2,
+							ipv4CIDR:        "127.123.234.0/28",
+						},
+					},
+				}),
+			allocatedCIDRs: map[int][]string{
+				0: {"127.123.234.0/30", "127.123.234.4/30", "127.123.234.8/30", "127.123.234.12/30"},
+			},
+			expectedAllocatedCIDRFirstRound: nil,
+			cidrsToRelease: [][]string{
+				{"127.123.234.4/30"},
+			},
+			expectedAllocatedCIDRSecondRound: map[int]string{
+				0: "127.123.234.4/30",
 			},
 		},
 	}
@@ -2461,16 +2702,13 @@ func TestUpdateCIDRsAllocationForDeletedNode(t *testing.T) {
 }
 
 // makeTestClusterCIDREntry builds the cidrMap entry of an IPv4 ClusterCIDR
-// selected by the given node selector, or of a catch all ClusterCIDR if ns is nil.
+// selected by the given node selector, or of a catch all ClusterCIDR if ns is nil
+// or has no terms.
 func makeTestClusterCIDREntry(t *testing.T, name, ipv4CIDR string, perNodeHostBits int, ns *corev1.NodeSelector) *clusterCIDREntry {
 	t.Helper()
 
-	var selector *nodeSelector
-	if ns != nil {
-		var err error
-		selector, err = parseNodeSelector(ns)
-		require.NoError(t, err)
-	}
+	selector, err := parseClusterCIDRNodeSelector(ns)
+	require.NoError(t, err)
 
 	_, cidr, err := utilnet.ParseCIDRSloppy(ipv4CIDR)
 	require.NoError(t, err)
@@ -2501,6 +2739,147 @@ func clusterCIDRNames(clusterCIDRs []*multicidrset.ClusterCIDR) []string {
 		names = append(names, clusterCIDR.Name)
 	}
 	return names
+}
+
+// TestOrderedMatchingClusterCIDRsNodeSelectorSemantics covers the node selector
+// semantics the allocator has to honour: the terms are ORed, the requirements
+// within a term are ANDed, matchFields are matched against the node fields, and
+// an empty term matches no node.
+// xref: https://github.com/kubernetes-sigs/node-ipam-controller/issues/36
+func TestOrderedMatchingClusterCIDRsNodeSelectorSemantics(t *testing.T) {
+	node := makeNode("node-1", map[string]string{"zone": "a"})
+
+	testCases := []struct {
+		description  string
+		nodeSelector *corev1.NodeSelector
+		wantMatch    bool
+	}{
+		{
+			description: "node matches the first of two ORed terms",
+			nodeSelector: selectorWithTerms(
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+				}},
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b"),
+				}},
+			),
+			wantMatch: true,
+		},
+		{
+			description: "node matches the second of two ORed terms",
+			nodeSelector: selectorWithTerms(
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b"),
+				}},
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+				}},
+			),
+			wantMatch: true,
+		},
+		{
+			description: "node matches neither of two ORed terms",
+			nodeSelector: selectorWithTerms(
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b"),
+				}},
+				corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "c"),
+				}},
+			),
+			wantMatch: false,
+		},
+		{
+			description: "node matches only one requirement of an ANDed term",
+			nodeSelector: selectorWithTerms(corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+					nodeSelectorRequirement("rack", corev1.NodeSelectorOpIn, "1"),
+				},
+			}),
+			wantMatch: false,
+		},
+		{
+			description: "node is selected by its name through matchFields",
+			nodeSelector: selectorWithTerms(corev1.NodeSelectorTerm{
+				MatchFields: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpIn, "node-1"),
+				},
+			}),
+			wantMatch: true,
+		},
+		{
+			description: "another node name in matchFields does not select the node",
+			nodeSelector: selectorWithTerms(corev1.NodeSelectorTerm{
+				MatchFields: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpIn, "node-2"),
+				},
+			}),
+			wantMatch: false,
+		},
+		{
+			// The ClusterCIDR API makes it a catch all one, unlike core v1.
+			description:  "a node selector without terms selects every node",
+			nodeSelector: selectorWithTerms(),
+			wantMatch:    true,
+		},
+		{
+			description:  "an empty term selects no node",
+			nodeSelector: selectorWithTerms(corev1.NodeSelectorTerm{}),
+			wantMatch:    false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			ra := &multiCIDRRangeAllocator{}
+			cidrMap := makeTestCIDRMap(makeTestClusterCIDREntry(t, "test-cc", "10.0.0.0/16", 8, tc.nodeSelector))
+
+			matching := ra.orderedMatchingClusterCIDRs(node, true, cidrMap)
+
+			if !tc.wantMatch {
+				assert.Empty(t, matching)
+				return
+			}
+			assert.Equal(t, []string{"test-cc"}, clusterCIDRNames(matching))
+		})
+	}
+}
+
+// TestOrderedMatchingClusterCIDRsPriority asserts that the ClusterCIDR matching
+// the node with the most requirements is preferred, counting the requirements of
+// the matching term only.
+func TestOrderedMatchingClusterCIDRsPriority(t *testing.T) {
+	node := makeNode("node-1", map[string]string{"zone": "a", "rack": "1"})
+
+	cidrMap := makeTestCIDRMap(
+		// Matches the node with a single requirement.
+		makeTestClusterCIDREntry(t, "loose-cc", "10.0.0.0/16", 8, selectorWithTerms(
+			corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+			}},
+		)),
+		// Matches the node with two requirements through its second term. The
+		// first term has more requirements but does not match, so it must not be
+		// counted.
+		makeTestClusterCIDREntry(t, "tight-cc", "10.1.0.0/16", 8, selectorWithTerms(
+			corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "b"),
+				nodeSelectorRequirement("rack", corev1.NodeSelectorOpIn, "1"),
+				nodeSelectorRequirement("role", corev1.NodeSelectorOpExists),
+			}},
+			corev1.NodeSelectorTerm{MatchExpressions: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("zone", corev1.NodeSelectorOpIn, "a"),
+				nodeSelectorRequirement("rack", corev1.NodeSelectorOpIn, "1"),
+			}},
+		)),
+	)
+
+	ra := &multiCIDRRangeAllocator{}
+	matching := ra.orderedMatchingClusterCIDRs(node, true, cidrMap)
+	assert.Equal(t, []string{"tight-cc", "loose-cc"}, clusterCIDRNames(matching),
+		"the ClusterCIDR matching more requirements must come first")
 }
 
 // TestOrderedMatchingClusterCIDRsCatchAll covers the ClusterCIDRs without a node
@@ -2548,22 +2927,25 @@ func TestOrderedMatchingClusterCIDRsCatchAll(t *testing.T) {
 		assert.Equal(t, []string{"zone-a-cc", "catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
 	})
 
-	t.Run("a node carrying the internal default label lists every catch all ClusterCIDR once", func(t *testing.T) {
+	t.Run("a node carrying the former internal default label lists every catch all ClusterCIDR once", func(t *testing.T) {
 		ra := &multiCIDRRangeAllocator{}
-		labeled := makeNode("node-3", map[string]string{defaultClusterCIDRKey: defaultClusterCIDRValue})
+		labeled := makeNode("node-3", map[string]string{"kubernetes.io/clusterCIDR": "default"})
 		matching := ra.orderedMatchingClusterCIDRs(labeled, true, newCIDRMap(t))
 		assert.Equal(t, []string{"catch-all-small", "catch-all-b", "catch-all-a"}, clusterCIDRNames(matching))
 	})
 
-	t.Run("a node selector equal to the internal default one is a catch all one", func(t *testing.T) {
+	t.Run("a node selector on the former internal default label is an ordinary selector", func(t *testing.T) {
 		ra := &multiCIDRRangeAllocator{}
-		clusterCIDR := &v1.ClusterCIDR{
-			ObjectMeta: metav1.ObjectMeta{Name: "labelled-default"},
-			Spec:       v1.ClusterCIDRSpec{NodeSelector: defaultNodeSelector(), PerNodeHostBits: 4, IPv4: "10.2.0.0/24"},
-		}
-		selector, err := ra.clusterCIDRNodeSelector(clusterCIDR)
-		require.NoError(t, err)
-		assert.Nil(t, selector)
+		cidrMap := makeTestCIDRMap(
+			makeTestClusterCIDREntry(t, "catch-all", "10.1.0.0/24", 4, nil),
+			makeTestClusterCIDREntry(t, "labelled-default", "10.2.0.0/24", 4, selectorWithTerms(corev1.NodeSelectorTerm{
+				MatchExpressions: []corev1.NodeSelectorRequirement{
+					nodeSelectorRequirement("kubernetes.io/clusterCIDR", corev1.NodeSelectorOpIn, "default"),
+				},
+			})),
+		)
+		matching := ra.orderedMatchingClusterCIDRs(node, true, cidrMap)
+		assert.Equal(t, []string{"catch-all"}, clusterCIDRNames(matching))
 	})
 }
 
@@ -2749,6 +3131,32 @@ func TestSyncClusterCIDRCreateWithUnparseableNodeSelector(t *testing.T) {
 	require.Len(t, events, 1)
 	assert.Contains(t, events[0], "Warning InvalidNodeSelector Invalid node selector, the ClusterCIDR selects no node: ")
 	assert.Contains(t, events[0], "must be an integer")
+}
+
+// TestNodeSelectorCannotAffectAnotherClusterCIDR asserts that a ClusterCIDR is
+// always matched with its own node selector, whatever the other ClusterCIDRs.
+func TestNodeSelectorCannotAffectAnotherClusterCIDR(t *testing.T) {
+	ra := &multiCIDRRangeAllocator{}
+	cidrMap := makeTestCIDRMap(
+		// A field key that renders like the legit selector below once turned
+		// into a field selector string.
+		makeTestClusterCIDREntry(t, "a-crafted", "10.0.0.0/16", 8, selectorWithTerms(corev1.NodeSelectorTerm{
+			MatchFields: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("metadata.name=x] || fields[metadata.name", corev1.NodeSelectorOpIn, "y"),
+			},
+		})),
+		makeTestClusterCIDREntry(t, "b-legit", "10.1.0.0/16", 8, selectorWithTerms(
+			corev1.NodeSelectorTerm{MatchFields: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpIn, "x"),
+			}},
+			corev1.NodeSelectorTerm{MatchFields: []corev1.NodeSelectorRequirement{
+				nodeSelectorRequirement("metadata.name", corev1.NodeSelectorOpIn, "y"),
+			}},
+		)),
+	)
+
+	matching := ra.orderedMatchingClusterCIDRs(makeNode("y", nil), true, cidrMap)
+	assert.Equal(t, []string{"b-legit"}, clusterCIDRNames(matching))
 }
 
 // newReleaseTestAllocator returns an allocator with the given cidrMap, whose node

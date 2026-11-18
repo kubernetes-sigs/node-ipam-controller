@@ -28,8 +28,9 @@ import (
 // An PriorityQueueItem is something we manage in a priority queue.
 type PriorityQueueItem struct {
 	clusterCIDR *cidrset.ClusterCIDR
-	// matchCount is the number of node selector requirements, labels and fields,
-	// that the node matches. It is the first determinant of priority.
+	// matchCount is the number of requirements, labels and fields, in the
+	// largest node selector term that matches the node. It is the first
+	// determinant of priority.
 	matchCount int
 	// index is needed by update and is maintained by the heap.Interface methods.
 	index int // The index of the item in the heap.

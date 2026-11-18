@@ -59,8 +59,6 @@ import (
 )
 
 const (
-	defaultClusterCIDRKey        = "kubernetes.io/clusterCIDR"
-	defaultClusterCIDRValue      = "default"
 	defaultClusterCIDRName       = "default-cluster-cidr"
 	defaultClusterCIDRAPIVersion = "networking.x-k8s.io/v1"
 	clusterCIDRFinalizer         = "networking.x-k8s.io/cluster-cidr-finalizer"
@@ -986,25 +984,6 @@ func (r *multiCIDRRangeAllocator) updateCIDRsAllocation(logger klog.Logger, data
 	return err
 }
 
-// defaultNodeSelector generates a label with defaultClusterCIDRKey as the key and
-// defaultClusterCIDRValue as the value, it is an internal nodeSelector matching all
-// nodes. Only used if no ClusterCIDR selects the node.
-func defaultNodeSelector() *corev1.NodeSelector {
-	return &corev1.NodeSelector{
-		NodeSelectorTerms: []corev1.NodeSelectorTerm{
-			{
-				MatchExpressions: []corev1.NodeSelectorRequirement{
-					{
-						Key:      defaultClusterCIDRKey,
-						Operator: corev1.NodeSelectorOpIn,
-						Values:   []string{defaultClusterCIDRValue},
-					},
-				},
-			},
-		},
-	}
-}
-
 // prioritizedCIDRs requires the caller to hold r.lock.
 // prioritizedCIDRs returns a list of CIDRs to be allocated to the node.
 // Returns 1 CIDR  if single stack.
@@ -1428,27 +1407,17 @@ func (r *multiCIDRRangeAllocator) deleteClusterCIDR(logger klog.Logger, clusterC
 }
 
 // clusterCIDRNodeSelector returns the parsed node selector of the ClusterCIDR,
-// or nil if the ClusterCIDR has no node selector, which makes it a catch all
-// config.
+// or nil if the ClusterCIDR has a nil or empty node selector, which makes it a
+// catch all config.
 func (r *multiCIDRRangeAllocator) clusterCIDRNodeSelector(clusterCIDR *v1.ClusterCIDR) (*nodeSelector, error) {
-	if clusterCIDR.Spec.NodeSelector == nil {
+	ns := clusterCIDR.Spec.NodeSelector
+	// The ClusterCIDR API makes a nil node selector, and one without terms, as
+	// in nodeSelectorTerms: [], select every node, unlike the core v1
+	// NodeSelector.
+	if ns == nil || len(ns.NodeSelectorTerms) == 0 {
 		return nil, nil
 	}
-	selector, err := parseNodeSelector(clusterCIDR.Spec.NodeSelector)
-	if err != nil {
-		return nil, err
-	}
-
-	// A node selector equal to the internal default one,
-	// kubernetes.io/clusterCIDR in (default), makes a catch all config as well.
-	defaultSelector, err := nodeSelectorAsSelector(defaultNodeSelector())
-	if err != nil {
-		return nil, err
-	}
-	if selector.selector.String() == defaultSelector.String() {
-		return nil, nil
-	}
-	return selector, nil
+	return parseNodeSelector(ns)
 }
 
 func listClusterCIDRs(ctx context.Context, networkClient clustercidrclient.ClusterCIDRInterface) (*v1.ClusterCIDRList, error) {
